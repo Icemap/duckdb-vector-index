@@ -1,0 +1,12 @@
+set(EXTENSION_SOURCES
+    ${EXTENSION_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/vector_index.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vector_index_registry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/metric.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index_block_store.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/optimize_expr.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/optimize_scan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/optimize_topk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/optimize_join.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index_macros.cpp
+    PARENT_SCOPE)

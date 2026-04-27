@@ -1,0 +1,11 @@
+# name: test/sql/rabitq/rabitq_basic.test
+# group: [rabitq]
+#
+# Placeholder for M1. Real assertions:
+#   - CREATE INDEX ... USING HNSW (vec) WITH (quantizer='rabitq', bits=3)
+#   - EXPLAIN shows HNSW_INDEX_SCAN
+#   - recall on a deterministic 1k-vector fixture >= 0.99 @ Recall@10
+
+mode skip
+
+require vindex

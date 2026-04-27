@@ -1,0 +1,9 @@
+# name: test/sql/ivf/ivf_basic.test
+# group: [ivf]
+#
+# Placeholder for M2. Covers CREATE INDEX ... USING IVF, nlist/nprobe pragma,
+# IVF-Flat + IVF-RaBitQ combinations.
+
+mode skip
+
+require vindex

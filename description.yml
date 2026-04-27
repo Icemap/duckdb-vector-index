@@ -1,0 +1,28 @@
+# Metadata for duckdb/community-extensions registration.
+# Filled out once M1 (RaBitQ) is ready for public distribution.
+extension:
+  name: vindex
+  description: |
+    General-purpose vector index extension for DuckDB: HNSW, IVF, DiskANN,
+    ScaNN, SPANN, with pluggable quantization (RaBitQ by default at 3 bits,
+    delivering >99% Recall@10 on standard ANN benchmarks).
+  version: 0.0.0
+  language: C++
+  build: cmake
+  license: MIT
+  maintainers:
+    - cheese
+  requires_toolchains: parquet;json
+
+repo:
+  github: cheese/duckdb-vector-index
+  ref: main
+
+docs:
+  # Community-extensions serves these on duckdb.org/community_extensions/
+  hello_world: |
+    LOAD vindex;
+    CREATE TABLE t(v FLOAT[128]);
+    CREATE INDEX idx ON t USING HNSW (v)
+      WITH (metric='l2sq', quantizer='rabitq', bits=3);
+    SELECT * FROM t ORDER BY array_distance(v, $query) LIMIT 10;

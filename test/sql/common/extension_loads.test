@@ -1,0 +1,11 @@
+# name: test/sql/common/extension_loads.test
+# group: [common]
+#
+# Smoke test: the vindex extension loads cleanly. Expanded with CREATE INDEX
+# coverage once at least one algorithm (HNSW M0 port) is wired into the
+# VectorIndexRegistry.
+
+require vindex
+
+statement ok
+SELECT 1;
