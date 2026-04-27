@@ -5,10 +5,9 @@ official [`vss`](https://github.com/duckdb/duckdb-vss) extension: supports
 HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 **RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
 
-> **Status**: M1 complete — HNSW + RaBitQ (bits ∈ {1,2,3,4,5,7,8}) with an
-> optimizer-level rerank pass, persisted across restarts, SQL + unit tests
-> green, recall harness wired (`make bench`). IVF (M2) is next. See
-> `doc/plan.md` for the full milestone list.
+> **Status**: HNSW + RaBitQ (bits ∈ {1,2,3,4,5,7,8}) are supported, with an
+> optimizer-level rerank pass, persistence across restarts, SQL + unit tests
+> green, and a recall harness wired up (`make bench`). IVF is next.
 
 ## Quickstart (target UX)
 
@@ -34,11 +33,11 @@ LIMIT 10;
 
 | `USING` | Status | Notes |
 | --- | --- | --- |
-| `HNSW` | M1 | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
-| `IVF` | M2 | IVF-Flat / IVF-PQ / IVF-RaBitQ |
-| `DISKANN` | M3 | Vamana graph + PQ, indexes larger than RAM |
-| `SCANN` | M4 | anisotropic quantization |
-| `SPANN` | M4 | in-memory centroids + disk postings |
+| `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
+| `IVF` | planned (M2) | IVF-Flat / IVF-PQ / IVF-RaBitQ |
+| `DISKANN` | planned (M3) | Vamana graph + PQ, indexes larger than RAM |
+| `SCANN` | planned (M4) | anisotropic quantization |
+| `SPANN` | planned (M4) | in-memory centroids + disk postings |
 
 ### Why not usearch?
 
@@ -48,39 +47,61 @@ with an in-house HNSW implementation (`src/algo/hnsw/` + `src/include/vindex/hns
 We ran a side-by-side microbench (`test/bench/bench_hnsw_core.cpp`) at matched
 hyperparameters before making the call:
 
-| engine | build (s) | QPS | Recall@10 | memory (MB) |
-| --- | --- | --- | --- | --- |
-| usearch | 21.0 | 9,664 | 0.49 | 14.7 |
-| HnswCore (ours) | 24.5 | 10,444 | 0.52 | 75.8 |
+| engine | build (s) | QPS | Recall@10 |
+| --- | --- | --- | --- |
+| usearch | 21.0 | 9,664 | 0.49 |
+| HnswCore (ours) | 24.5 | 10,444 | 0.52 |
 
 `N=100,000  D=128  NQ=200  K=10  M=16  M0=32  ef_construction=128  ef_search=64`
 
-So throughput and recall are comparable (QPS ratio 1.08). We pay ~5× memory
-for now — recoverable once M3 enables buffer eviction through `IndexBlockStore`.
-What we gain is the thing usearch cannot give us:
+Throughput and recall are comparable (QPS ratio 1.08). What we gain from
+owning the code path is the thing usearch cannot give us:
 
 1. **Pluggable quantization.** usearch's scalar types are fixed at (`f32`,
-   `f16`, `i8`, `b1`). RaBitQ b-bit packed codes (our default) and the M2 PQ
-   codebooks don't fit any of those, and its metric API takes a `scalar_kind_t`
-   enum we'd have to fork.
+   `f16`, `i8`, `b1`) — these are pure type casts, not compression. usearch
+   deliberately **does not own the vector data**: `add(key, ptr)` only
+   registers a `key → ptr` mapping and the caller keeps the `FLOAT[d]`
+   around. That design can't host RaBitQ (rotated + bit-packed codes), PQ
+   codebooks, or ScaNN's anisotropic quantization, because the "code"
+   doesn't exist outside the index — we produce it. We own it, so we can
+   compress it.
 2. **Rerank / fine-search.** RaBitQ is a coarse filter — the planner needs
    access to the top-`k × rerank_multiple` candidates to re-score them against
-   the authoritative `FLOAT[d]` column (M1.6e). usearch hides the candidate list
+   the authoritative `FLOAT[d]` column. usearch hides the candidate list
    behind its iterator, with no extension point.
-3. **Block-native storage.** DiskANN (M3) and SPANN (M4) need per-node block
-   addressing so the page cache can evict cold regions. `IndexBlockStore` is
-   the shared substrate; the usearch blob would have to be torn apart anyway.
+3. **Block-native storage.** DiskANN and SPANN need per-node block
+   addressing so the page cache can evict cold regions. `IndexBlockStore`
+   is the shared substrate; the usearch blob would have to be torn apart
+   anyway.
 
-If you want a pure usearch-backed index, `duckdb-vss` remains the supported
-upstream extension.
+#### Memory footprint
+
+The bench above deliberately omitted a memory column because a naive RSS
+comparison is misleading. usearch's resident delta looked ~5× smaller than
+ours, but that number excludes the vectors themselves — the caller's
+`std::vector<float>` holds them and usearch just points at that buffer.
+Like-for-like accounting with caller-owned vectors included:
+
+| setup (N=100k, d=128)         | index RSS | caller-held raw `FLOAT[d]` | total |
+| ----------------------------- | --------- | -------------------------- | ----- |
+| usearch (float32, external)   |   14.7 MB |                    51.2 MB | **65.9 MB** |
+| HnswCore + `flat` (same perf) |   75.8 MB |                          0 | **75.8 MB** |
+| HnswCore + `rabitq` 3-bit     |  ~33.6 MB |                          0 | **~33.6 MB** |
+
+The `flat` row matches the bench and is the fair apples-to-apples number
+against usearch (both paths store float32 codes; we embed them in the node
+block, usearch leaves them in caller memory). The `rabitq` row is the
+default config — since we own the code, we can compress it ~9× and come out
+roughly half of usearch's total footprint, without the caller needing to
+keep a separate raw copy for rerank.
 
 ## Supported quantizers
 
 | `quantizer` | Status | Default `bits` | Notes |
 | --- | --- | --- | --- |
-| `flat` | M0 | — | no compression, float32 |
-| `rabitq` | M1 | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
-| `pq` | M2 | — | classical product quantization |
+| `flat` | supported | — | no compression, float32 |
+| `rabitq` | supported | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
+| `pq` | planned (M2) | — | classical product quantization |
 
 ### Quantizer bits vs recall
 
@@ -166,9 +187,6 @@ make bench               # recall regression on siftsmall (~5 s, auto-downloads)
 dataset into `test/bench/datasets/` on first run and fails non-zero if any
 Recall@10 threshold regresses. Full-size SIFT1M is wired but gated — pass
 `--dataset sift1m` to `run_recall.py` to exercise it.
-
-See `AGENTS.md` for full contributor conventions (naming, testing thresholds,
-community-extensions constraints).
 
 ## License
 
