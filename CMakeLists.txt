@@ -12,16 +12,10 @@ project(${TARGET_NAME} CXX)
 # -----------------------------------------------------------------------------
 # Options
 # -----------------------------------------------------------------------------
-option(USE_SIMSIMD
-       "Use SIMSIMD library for vectorized distance kernels" ON)
 option(VINDEX_BUILD_UNIT
        "Build Catch2 unit tests in test/unit/" OFF)
-
-if(USE_SIMSIMD)
-  add_definitions(-DDUCKDB_USEARCH_USE_SIMSIMD=1)
-else()
-  add_definitions(-DDUCKDB_USEARCH_USE_SIMSIMD=0)
-endif()
+option(VINDEX_BUILD_BENCH
+       "Build standalone microbenchmarks in test/bench/" OFF)
 
 # -----------------------------------------------------------------------------
 # Sources
@@ -55,4 +49,11 @@ install(
 if(VINDEX_BUILD_UNIT)
   enable_testing()
   add_subdirectory(test/unit)
+endif()
+
+# -----------------------------------------------------------------------------
+# Optional: microbenchmarks
+# -----------------------------------------------------------------------------
+if(VINDEX_BUILD_BENCH)
+  add_subdirectory(test/bench)
 endif()

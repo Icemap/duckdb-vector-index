@@ -5,7 +5,7 @@ EXT_NAME=vindex
 EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
 # Forward vindex-specific cmake flags into DuckDB's build invocation.
-EXT_FLAGS=-DVINDEX_BUILD_UNIT=ON
+EXT_FLAGS=-DVINDEX_BUILD_UNIT=ON -DVINDEX_BUILD_BENCH=ON
 
 # Pull in DuckDB's standard extension makefile (clone/build/test targets)
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
@@ -23,6 +23,12 @@ unit: release
 .PHONY: bench
 bench:
 	python3 test/bench/run_recall.py
+
+# HnswCore vs usearch microbench (built with VINDEX_BUILD_BENCH=ON).
+# Prints build time / QPS / recall; see test/bench/bench_hnsw_core.cpp.
+.PHONY: bench_hnsw_core
+bench_hnsw_core: release
+	./build/release/extension/vindex/test/bench/bench_hnsw_core
 
 # One-shot formatter (src/ only, skips third_party/)
 .PHONY: format

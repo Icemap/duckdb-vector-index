@@ -136,48 +136,26 @@ public:
 	}
 
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
-		auto &index = gstate.global_index->index;
 		auto &scan_state = gstate.scan_state;
 		auto &collection = gstate.collection;
 
-		const auto array_size = ArrayType::GetSize(scan_chunk.data[0].GetType());
+		// HnswCore is not internally thread-safe. Insert() delegates to the
+		// HnswIndex-level exclusive lock, so even with multiple construct
+		// tasks the work serializes. We keep the task framework intact to
+		// stay compatible with DuckDB's executor but push everything through
+		// HnswIndex::Construct.
+		DataChunk build_chunk;
+		build_chunk.Initialize(executor.context, {scan_chunk.data[0].GetType()});
+		Vector row_ids(LogicalType::ROW_TYPE);
 
 		while (collection->Scan(scan_state, local_scan_state, scan_chunk)) {
 			const auto count = scan_chunk.size();
-			auto &vec_vec = scan_chunk.data[0];
-			auto &data_vec = ArrayVector::GetEntry(vec_vec);
-			auto &rowid_vec = scan_chunk.data[1];
+			build_chunk.Reset();
+			build_chunk.data[0].Reference(scan_chunk.data[0]);
+			build_chunk.SetCardinality(count);
+			row_ids.Reference(scan_chunk.data[1]);
 
-			UnifiedVectorFormat vec_format;
-			UnifiedVectorFormat data_format;
-			UnifiedVectorFormat rowid_format;
-
-			vec_vec.ToUnifiedFormat(count, vec_format);
-			data_vec.ToUnifiedFormat(count * array_size, data_format);
-			rowid_vec.ToUnifiedFormat(count, rowid_format);
-
-			const auto row_ptr = UnifiedVectorFormat::GetData<row_t>(rowid_format);
-			const auto data_ptr = UnifiedVectorFormat::GetData<float>(data_format);
-
-			for (idx_t i = 0; i < count; i++) {
-				const auto vec_idx = vec_format.sel->get_index(i);
-				const auto row_idx = rowid_format.sel->get_index(i);
-
-				const auto vec_valid = vec_format.validity.RowIsValid(vec_idx);
-				const auto rowid_valid = rowid_format.validity.RowIsValid(row_idx);
-				if (!vec_valid || !rowid_valid) {
-					executor.PushError(
-					    ErrorData("Invalid data in HNSW index construction: Cannot construct index with NULL values."));
-					return TaskExecutionResult::TASK_ERROR;
-				}
-
-				const auto result = index.add(row_ptr[row_idx], data_ptr + (vec_idx * array_size), thread_id);
-				if (!result) {
-					executor.PushError(ErrorData(result.error.what()));
-					return TaskExecutionResult::TASK_ERROR;
-				}
-			}
-
+			gstate.global_index->Construct(build_chunk, row_ids, thread_id);
 			gstate.built_count += count;
 
 			if (mode == TaskExecutionMode::PROCESS_PARTIAL) {
@@ -263,9 +241,11 @@ SinkFinalizeType PhysicalCreateHnswIndex::Finalize(Pipeline &pipeline, Event &ev
 
 	gstate.is_building = true;
 
-	auto &ts = TaskScheduler::GetScheduler(context);
-	auto &index = gstate.global_index->index;
-	index.reserve({static_cast<size_t>(collection->Count()), static_cast<size_t>(ts.NumberOfThreads())});
+	// Train the quantizer on the full input sample *before* spinning up the
+	// parallel Construct tasks. FlatQuantizer's Train is a no-op; RabitqQuantizer
+	// derives centroid + rotation from this pass. Must happen before any
+	// Encode() call, which Construct triggers on the first Insert.
+	gstate.global_index->TrainQuantizer(*collection);
 
 	collection->InitializeScan(gstate.scan_state, ColumnDataScanProperties::ALLOW_ZERO_COPY);
 

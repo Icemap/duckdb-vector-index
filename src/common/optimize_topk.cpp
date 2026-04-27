@@ -1,4 +1,3 @@
-#include "duckdb/catalog/catalog_entry/aggregate_function_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/duck_table_entry.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension_callback_manager.hpp"
@@ -29,29 +28,11 @@ using hnsw::HnswIndexScanBindData;
 using hnsw::HnswIndexScanFunction;
 
 // Rewrite AGG(MIN_BY(col1, distance(col2, q), k)) <- SEQ_SCAN(t1)
-//     => AGG(LIST(col1 ORDER BY distance(col2, q) ASC)) <- INDEX_SCAN(t1, q, k)
-
-static unique_ptr<Expression> CreateListOrderByExpr(ClientContext &context, unique_ptr<Expression> elem_expr,
-                                                    unique_ptr<Expression> order_expr,
-                                                    unique_ptr<Expression> filter_expr) {
-	auto func_entry =
-	    Catalog::GetEntry<AggregateFunctionCatalogEntry>(context, "", "", "list", OnEntryNotFound::RETURN_NULL);
-	if (!func_entry) {
-		return nullptr;
-	}
-
-	auto func = func_entry->functions.GetFunctionByOffset(0);
-	vector<unique_ptr<Expression>> arguments;
-	arguments.push_back(std::move(elem_expr));
-
-	auto agg_bind_data = func.bind(context, func, arguments);
-	auto new_agg_expr = make_uniq<BoundAggregateExpression>(func, std::move(arguments), std::move(filter_expr),
-	                                                        std::move(agg_bind_data), AggregateType::NON_DISTINCT);
-	BoundOrderByNode order_by_node(OrderType::ASCENDING, OrderByNullType::NULLS_LAST, std::move(order_expr));
-	new_agg_expr->order_bys = make_uniq<BoundOrderModifier>();
-	new_agg_expr->order_bys->orders.push_back(std::move(order_by_node));
-	return std::move(new_agg_expr);
-}
+//     => AGG(MIN_BY(col1, distance(col2, q), k)) <- INDEX_SCAN(t1, q, k × rerank)
+//
+// The aggregate is preserved intact — the index scan now returns candidates
+// (k × rerank_multiple row_ids) and min_by is exactly the exact-distance
+// top-k rerank we need. See optimize_scan.cpp for the matching invariant.
 
 class VectorIndexTopKOptimizer : public OptimizerExtension {
 public:
@@ -153,7 +134,11 @@ public:
 				continue;
 			}
 			auto &hnsw_index = index.Cast<HnswIndex>();
-			bind_data = make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, k_limit, std::move(query_vector));
+			// Over-fetch: the index returns candidates; the min_by aggregate
+			// above picks the exact top-k by real distance.
+			const idx_t rerank = vi->GetRerankMultiple(context);
+			const idx_t cand_limit = idx_t(k_limit) * rerank;
+			bind_data = make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, cand_limit, std::move(query_vector));
 			break;
 		}
 
@@ -167,8 +152,12 @@ public:
 		get.estimated_cardinality = cardinality->estimated_cardinality;
 		get.bind_data = std::move(bind_data);
 
-		agg.expressions[0] = CreateListOrderByExpr(context, col_expr->Copy(), dist_expr->Copy(),
-		                                           agg_func_expr.filter ? agg_func_expr.filter->Copy() : nullptr);
+		// NOTE: We deliberately do NOT rewrite min_by into list(col ORDER BY dist).
+		// The index scan now emits k × rerank_multiple candidates and the
+		// original min_by(col, dist, k) is exactly the rerank step we need —
+		// picking the k smallest by exact distance. This is the same clean
+		// invariant as optimize_scan.cpp: index returns candidates, upstream
+		// operator does the exact-distance top-k.
 
 		if (get.table_filters.filters.empty()) {
 			return true;

@@ -47,6 +47,15 @@ public:
 	// PreprocessQuery) and a stored code. Metric is fixed at construction.
 	virtual float EstimateDistance(const_data_ptr_t code, const float *query_preproc) const = 0;
 
+	// Estimated distance between two stored codes. Required by graph-building
+	// heuristics that need to decide whether to keep an edge based on
+	// pairwise neighbor distances (HNSW Algorithm 4). Implementations that
+	// cannot provide a fast code-to-code distance (e.g. RaBitQ at narrow
+	// bit-widths where codes lose too much information) may decode + rescore
+	// — callers treat this as insert-time-only and expect it to be slower
+	// than EstimateDistance.
+	virtual float CodeDistance(const_data_ptr_t code_a, const_data_ptr_t code_b) const = 0;
+
 	// Prepare a query vector for repeated use (e.g. apply the same random
 	// rotation RaBitQ uses at encode time). `out` must have room for at least
 	// QueryWorkspaceSize() floats.

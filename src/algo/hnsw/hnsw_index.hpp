@@ -5,32 +5,42 @@
 #include "duckdb/common/string.hpp"
 #include "duckdb/common/typedefs.hpp"
 #include "duckdb/common/unique_ptr.hpp"
+#include "duckdb/common/unordered_map.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/common/vector.hpp"
 #include "duckdb/execution/index/index_pointer.hpp"
-#include "duckdb/execution/index/fixed_size_allocator.hpp"
 #include "duckdb/storage/index_storage_info.hpp"
 #include "duckdb/storage/storage_lock.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
 
+#include "vindex/hnsw_core.hpp"
+#include "vindex/index_block_store.hpp"
+#include "vindex/quantizer.hpp"
 #include "vindex/vector_index.hpp"
-#include "usearch/duckdb_usearch.hpp"
 
 namespace duckdb {
+class ColumnDataCollection;
 namespace vindex {
 namespace hnsw {
+
+struct HnswLevelStats {
+	idx_t nodes;
+	idx_t edges;
+	idx_t max_edges;
+	idx_t allocated_bytes;
+};
 
 struct HnswIndexStats {
 	idx_t max_level;
 	idx_t count;
 	idx_t capacity;
 	idx_t approx_size;
-	vector<unum::usearch::index_dense_gt<row_t>::stats_t> level_stats;
+	vector<HnswLevelStats> level_stats;
 };
 
 class HnswIndex : public VectorIndex {
 public:
 	static constexpr const char *TYPE_NAME = "HNSW";
-	using USearchIndexType = unum::usearch::index_dense_gt<row_t>;
 
 	HnswIndex(const string &name, IndexConstraintType index_constraint_type, const vector<column_t> &column_ids,
 	          TableIOManager &table_io_manager, const vector<unique_ptr<Expression>> &unbound_expressions,
@@ -39,18 +49,10 @@ public:
 
 	static PhysicalOperator &CreatePlan(PlanIndexInput &input);
 
-	//! The actual usearch index
-	USearchIndexType index;
-
-	//! Block pointer to the root of the index
-	IndexPointer root_block_ptr;
-
-	//! The allocator used to persist linked blocks
-	unique_ptr<FixedSizeAllocator> linked_block_allocator;
-
 	// --- VectorIndex contract (all algorithms) ------------------------------
 	MetricKind GetMetricKind() const override;
 	idx_t GetVectorSize() const override;
+	idx_t GetRerankMultiple(ClientContext &context) const override;
 
 	unique_ptr<IndexScanState> InitializeScan(float *query_vector, idx_t limit, ClientContext &context) override;
 	idx_t Scan(IndexScanState &state, Vector &result, idx_t result_offset = 0) override;
@@ -65,12 +67,15 @@ public:
 	void PersistToDisk();
 	void Compact();
 
+	// One-shot training pass over up to `sample_cap` input vectors. Called by
+	// PhysicalCreateHnswIndex::Finalize before the parallel Construct phase.
+	// FlatQuantizer's Train is a no-op; RabitqQuantizer derives centroid +
+	// rotation seed from this sample. Safe to call exactly once per index.
+	void TrainQuantizer(ColumnDataCollection &collection, idx_t sample_cap = 65536);
+
 	unique_ptr<HnswIndexStats> GetStats();
 
 	void VerifyBuffers(IndexLock &lock) override;
-
-	static const case_insensitive_map_t<unum::usearch::metric_kind_t> METRIC_KIND_MAP;
-	static const unordered_map<uint8_t, unum::usearch::scalar_kind_t> SCALAR_KIND_MAP;
 
 	// --- DuckDB BoundIndex hooks -------------------------------------------
 	ErrorData Append(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
@@ -97,13 +102,50 @@ public:
 		is_dirty = true;
 	}
 	void SyncSize() {
-		index_size = index.size();
+		index_size = core_ ? core_->Size() : 0;
 	}
 
 private:
+	// Core algorithm + storage. Created in the constructor (from WITH options or
+	// from persisted state). Construct() / Scan() delegate here.
+	unique_ptr<IndexBlockStore> store_;
+	unique_ptr<Quantizer> quantizer_;
+	unique_ptr<HnswCore> core_;
+
+	// Hyperparameters snapshot — kept separately so GetVectorSize/GetMetricKind
+	// work before core_ is lazily resized, and so stats can report them.
+	MetricKind metric_ {MetricKind::L2SQ};
+	idx_t dim_ = 0;
+	HnswCoreParams params_ {};
+	// Index-level default for the rerank over-fetch factor. 1 = no over-fetch
+	// (pre-M1.6e behavior). Session pragma `vindex_rerank_multiple` overrides.
+	idx_t rerank_multiple_ = 1;
+
+	// row_t → BlockId map: required to honor DuckDB's Delete(row_ids) contract
+	// since HnswCore addresses nodes by BlockId, not row_id. usearch had this
+	// built in via its internal key hash; we track it at this layer.
+	unordered_map<row_t, BlockId> row_to_block_;
+	// Tombstones — HnswCore's graph retains the node (edges might still point
+	// at it) but Scan filters the row_id out. Compact() rebuilds the graph.
+	unordered_set<row_t> tombstones_;
+
+	// Root of the HnswIndex state stream (quantizer blob + HnswCore state +
+	// row_to_block_ + tombstones_). The node allocators persist separately via
+	// IndexBlockStore::GetInfo.
+	BlockId state_root_ {};
+
 	bool is_dirty = false;
 	StorageLock rwlock;
 	atomic<idx_t> index_size = {0};
+
+	// Serialize HnswIndex-level state into the state stream. The caller has
+	// typically just written node allocators into the block store.
+	void WriteStateStream();
+	// Load quantizer / core / row map from an existing state stream root.
+	void ReadStateStream(BlockId root);
+	// Build a fresh core_ + quantizer_ from WITH-options for a new index.
+	void InitFromOptions(const case_insensitive_map_t<Value> &options, idx_t vector_size,
+	                     MetricKind metric);
 };
 
 } // namespace hnsw

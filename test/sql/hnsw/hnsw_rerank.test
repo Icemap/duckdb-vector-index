@@ -1,0 +1,79 @@
+# name: test/sql/hnsw/hnsw_rerank.test
+# group: [hnsw]
+#
+# M1.6e — rerank planner end-to-end.
+#
+# Invariant (enforced by optimize_scan.cpp / optimize_topk.cpp):
+#   HNSW_INDEX_SCAN returns k × rerank_multiple candidate row_ids.
+#   The upstream TopN (ORDER BY ... LIMIT k) or min_by(col, dist, k)
+#   reranks by EXACT distance against the authoritative FLOAT[] column.
+#
+# This is the single path — the optimizer no longer has an "exact top-k"
+# shortcut branch. TopN / min_by is always retained.
+
+require vindex
+
+require noforcestorage
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+# --- plan shape: rerank=1 still keeps TopN (uniform plan shape) ---------------
+statement ok
+CREATE INDEX idx_r1 ON t1 USING HNSW (vec) WITH (rerank = 1);
+
+query II
+EXPLAIN SELECT vec FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:(?s).*TOP_N.*HNSW_INDEX_SCAN.*
+
+statement ok
+DROP INDEX idx_r1;
+
+# --- plan shape: rerank>1 also keeps TopN and over-fetches --------------------
+statement ok
+CREATE INDEX idx_r5 ON t1 USING HNSW (vec) WITH (rerank = 5);
+
+# TopN is preserved; HNSW_INDEX_SCAN is present — single uniform plan shape
+# regardless of rerank multiple.
+query II
+EXPLAIN SELECT vec FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:(?s).*TOP_N.*HNSW_INDEX_SCAN.*
+
+# min_by path is ALSO preserved (not rewritten into list(ORDER BY ...)) —
+# min_by itself is the exact-distance rerank step.
+query II
+EXPLAIN SELECT min_by(vec, array_distance(vec, [5,5,5]::FLOAT[3]), 3) FROM t1;
+----
+physical_plan	<REGEX>:(?s).*min_by.*HNSW_INDEX_SCAN.*
+
+# --- correctness: rerank recovers exact top-k -------------------------------
+# With rerank=5, the index emits 15 candidates and TopN picks the 3 closest.
+# [5,5,5] is in the dataset, so the closest 3 must all be at L2 distance <= 1.
+query I
+SELECT array_distance(vec, [5,5,5]::FLOAT[3]) <= 1.0
+FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+# --- session-level override --------------------------------------------------
+# vindex_rerank_multiple overrides the index-level default.
+statement ok
+SET vindex_rerank_multiple = 20;
+
+query I
+SELECT array_distance(vec, [5,5,5]::FLOAT[3]) <= 1.0
+FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+statement ok
+RESET vindex_rerank_multiple;

@@ -11,9 +11,19 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(vindex_unit
     test_metric.cpp
+    test_flat_quantizer.cpp
+    test_rabitq_rotate.cpp
+    test_rabitq_quantizer.cpp
+    test_rabitq_kernels.cpp
+    test_index_block_store.cpp
+    test_hnsw_core.cpp
     ${PROJECT_SOURCE_DIR}/src/common/metric.cpp
-    # test_rabitq_encode.cpp   # M1
-    # test_rabitq_recall.cpp   # M1
+    ${PROJECT_SOURCE_DIR}/src/common/index_block_store.cpp
+    ${PROJECT_SOURCE_DIR}/src/algo/hnsw/hnsw_core.cpp
+    ${PROJECT_SOURCE_DIR}/src/quant/flat/flat_quantizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_rotate.cpp
+    ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_quantizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_kernels.cpp
     # test_kmeans.cpp          # M2
 )
 

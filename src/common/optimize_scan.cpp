@@ -139,8 +139,12 @@ public:
 			// M0: only HNSW is registered, so downcast is safe. In M2 we'll
 			// route this through VectorIndex::CreateScanBindData.
 			auto &hnsw_index = index.Cast<HnswIndex>();
+			// Over-fetch by `rerank_multiple`. Index returns candidates; the
+			// surviving LogicalTopN above does the exact-distance final sort.
+			const idx_t rerank = vi->GetRerankMultiple(context);
+			const idx_t cand_limit = top_n.limit * rerank;
 			bind_data =
-			    make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, top_n.limit, std::move(query_vector));
+			    make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, cand_limit, std::move(query_vector));
 			break;
 		}
 
@@ -154,10 +158,11 @@ public:
 		get.estimated_cardinality = cardinality->estimated_cardinality;
 		get.bind_data = std::move(bind_data);
 
-		if (get.table_filters.filters.empty()) {
-			plan = std::move(top_n.children[0]);
-			return true;
-		}
+		// NOTE: We intentionally do NOT remove `top_n` from the plan. The index
+		// scan now returns candidates (k × rerank_multiple), and the TopN runs
+		// the exact-distance ORDER BY + LIMIT over them. This is the clean
+		// invariant we want even when rerank_multiple == 1 (TopN over exactly
+		// k rows is a no-op but keeps the plan shape uniform).
 
 		// Pull filters up above the index scan (it does not support pushdown).
 		get.projection_ids.clear();
@@ -186,7 +191,8 @@ public:
 		new_filter->ResolveOperatorTypes();
 		get_ptr = std::move(new_filter);
 
-		plan = std::move(top_n.children[0]);
+		// TopN stays in the plan — it performs exact-distance rerank + final LIMIT
+		// over the (k × rerank_multiple) candidates the index scan emits.
 		return true;
 	}
 

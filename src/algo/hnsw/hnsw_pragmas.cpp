@@ -74,19 +74,6 @@ static unique_ptr<GlobalTableFunctionState> HnswIndexInfoInitGlobal(ClientContex
 	return std::move(result);
 }
 
-static const char *MetricName(unum::usearch::metric_kind_t kind) {
-	switch (kind) {
-	case unum::usearch::metric_kind_t::l2sq_k:
-		return "l2sq";
-	case unum::usearch::metric_kind_t::cos_k:
-		return "cosine";
-	case unum::usearch::metric_kind_t::ip_k:
-		return "ip";
-	default:
-		return "unknown";
-	}
-}
-
 static void HnswIndexInfoExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &data = data_p.global_state->Cast<HnswIndexInfoGlobalState>();
 	if (data.offset >= data.entries.size()) {
@@ -125,7 +112,7 @@ static void HnswIndexInfoExecute(ClientContext &context, TableFunctionInput &dat
 		output.data[col++].SetValue(row, Value(table_entry.name));
 
 		auto stats = hnsw_index->GetStats();
-		output.data[col++].SetValue(row, Value(MetricName(hnsw_index->index.metric().metric_kind())));
+		output.data[col++].SetValue(row, Value(MetricName(hnsw_index->GetMetricKind())));
 		output.data[col++].SetValue(row, Value::BIGINT(hnsw_index->GetVectorSize()));
 		output.data[col++].SetValue(row, Value::BIGINT(stats->count));
 		output.data[col++].SetValue(row, Value::BIGINT(stats->capacity));

@@ -5,8 +5,10 @@ official [`vss`](https://github.com/duckdb/duckdb-vss) extension: supports
 HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 **RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
 
-> **Status**: early development. See `doc/plan.md` for milestones. M0 work in
-> progress — only scaffolding is checked in so far.
+> **Status**: M1 complete — HNSW + RaBitQ (bits ∈ {1,2,3,4,5,7,8}) with an
+> optimizer-level rerank pass, persisted across restarts, SQL + unit tests
+> green, recall harness wired (`make bench`). IVF (M2) is next. See
+> `doc/plan.md` for the full milestone list.
 
 ## Quickstart (target UX)
 
@@ -32,11 +34,45 @@ LIMIT 10;
 
 | `USING` | Status | Notes |
 | --- | --- | --- |
-| `HNSW` | M0 (port) | backed by [usearch](https://github.com/unum-cloud/usearch), same as official `vss` |
+| `HNSW` | M1 | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
 | `IVF` | M2 | IVF-Flat / IVF-PQ / IVF-RaBitQ |
 | `DISKANN` | M3 | Vamana graph + PQ, indexes larger than RAM |
 | `SCANN` | M4 | anisotropic quantization |
 | `SPANN` | M4 | in-memory centroids + disk postings |
+
+### Why not usearch?
+
+The upstream `duckdb-vss` extension (which this repo forks) wraps
+[`unum-cloud/usearch`](https://github.com/unum-cloud/usearch). We replaced it
+with an in-house HNSW implementation (`src/algo/hnsw/` + `src/include/vindex/hnsw_core.hpp`).
+We ran a side-by-side microbench (`test/bench/bench_hnsw_core.cpp`) at matched
+hyperparameters before making the call:
+
+| engine | build (s) | QPS | Recall@10 | memory (MB) |
+| --- | --- | --- | --- | --- |
+| usearch | 21.0 | 9,664 | 0.49 | 14.7 |
+| HnswCore (ours) | 24.5 | 10,444 | 0.52 | 75.8 |
+
+`N=100,000  D=128  NQ=200  K=10  M=16  M0=32  ef_construction=128  ef_search=64`
+
+So throughput and recall are comparable (QPS ratio 1.08). We pay ~5× memory
+for now — recoverable once M3 enables buffer eviction through `IndexBlockStore`.
+What we gain is the thing usearch cannot give us:
+
+1. **Pluggable quantization.** usearch's scalar types are fixed at (`f32`,
+   `f16`, `i8`, `b1`). RaBitQ b-bit packed codes (our default) and the M2 PQ
+   codebooks don't fit any of those, and its metric API takes a `scalar_kind_t`
+   enum we'd have to fork.
+2. **Rerank / fine-search.** RaBitQ is a coarse filter — the planner needs
+   access to the top-`k × rerank_multiple` candidates to re-score them against
+   the authoritative `FLOAT[d]` column (M1.6e). usearch hides the candidate list
+   behind its iterator, with no extension point.
+3. **Block-native storage.** DiskANN (M3) and SPANN (M4) need per-node block
+   addressing so the page cache can evict cold regions. `IndexBlockStore` is
+   the shared substrate; the usearch blob would have to be torn apart anyway.
+
+If you want a pure usearch-backed index, `duckdb-vss` remains the supported
+upstream extension.
 
 ## Supported quantizers
 
@@ -45,6 +81,59 @@ LIMIT 10;
 | `flat` | M0 | — | no compression, float32 |
 | `rabitq` | M1 | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
 | `pq` | M2 | — | classical product quantization |
+
+### Quantizer bits vs recall
+
+Low-bit RaBitQ is a **coarse filter** — on its own the estimated distances are
+noisy, so the expected usage is:
+
+> top `k × rerank_multiple` candidates ranked by estimated distance → re-rank
+> those candidates using the exact distance from the original `FLOAT[d]` column.
+
+The numbers below are Recall@10 over a 1,000-vector × 128-dim Gaussian fixture
+(scalar path; see `test/unit/test_rabitq_quantizer.cpp`). End-to-end numbers
+through DuckDB on the INRIA [siftsmall](http://corpus-texmex.irisa.fr/) set
+(10k × 128-d, 100 queries, `make bench`) match the shape:
+
+| config | Recall@10 | build | 100 queries |
+| --- | --- | --- | --- |
+| `hnsw-flat` | 0.996 | 0.5 s | 0.08 s |
+| `hnsw-rabitq3 + rerank=10` | 1.000 | 1.9 s | 0.09 s |
+| `hnsw-rabitq1 + rerank=50` | 0.998 | 3.0 s | 0.18 s |
+
+| `bits` | No rerank | + 10× rerank | + 20× rerank | Bytes / vector (d=128) | vs float32 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | ~0.40 | ~0.85 | ≥0.90 | 16 + 8 trailer = **24 B** | 21× smaller |
+| 2 | ~0.60 | ~0.95 | ≥0.97 | 32 + 8 = **40 B** | 13× smaller |
+| 3 *(default)* | ~0.80 | ≥0.98 | **≥0.99** | 48 + 8 = **56 B** | 9× smaller |
+| 4 | ~0.90 | ≥0.99 | ≥0.99 | 64 + 8 = **72 B** | 7× smaller |
+| 5 | ~0.95 | ≥0.99 | ≥0.99 | 80 + 8 = **88 B** | 5.8× smaller |
+| 7 | ~0.98 | ≥0.99 | ≥0.99 | 112 + 8 = **120 B** | 4.3× smaller |
+| 8 | ~0.99 | ≥0.99 | ≥0.99 | 128 + 8 = **136 B** | 3.8× smaller |
+| float32 (flat) | 1.00 | 1.00 | 1.00 | **512 B** | 1× |
+
+**Rules of thumb:**
+
+- `bits=3` is the default for a reason — it's the sweet spot on recall × memory.
+- `bits=1` and `bits=2` **only make sense with rerank ≥ 20×**. Using them
+  without rerank will emit a runtime warning and give you 40–60% Recall@10.
+- `bits ≥ 5` tends not to pay off vs `bits=3 + bigger rerank`; memory-bound
+  workloads almost always prefer lower bits + more rerank.
+
+### The rerank pass
+
+`WITH (rerank = N)` on `CREATE INDEX` (or the session pragma
+`SET vindex_rerank_multiple = N`) tells the planner to pull `k × N` candidates
+from the index and re-rank them by **exact** `array_distance` against the
+authoritative `FLOAT[d]` column. The plan shape is uniform regardless of `N`:
+
+```
+TOP_N (k) ← PROJECTION ← HNSW_INDEX_SCAN (emits k × N row_ids)
+```
+
+This is enforced by `test/sql/hnsw/hnsw_rerank.test`. There is no
+"skip rerank" shortcut — the upstream operator is always the exact-distance
+step, which is why `bits=1 + rerank=20` can recover >99% Recall@10.
 
 ## Repository layout
 
@@ -68,9 +157,15 @@ ref/duckdb-vss/         read-only upstream reference
 ```sh
 ./scripts/bootstrap.sh   # clones duckdb + extension-ci-tools
 make                     # release build → build/release/extension/vindex/
-make test                # SQL logic tests
-make unit                # Catch2 unit tests
+make test                # SQL logic tests (test/sql/)
+make unit                # Catch2 unit tests (test/unit/)
+make bench               # recall regression on siftsmall (~5 s, auto-downloads)
 ```
+
+`make bench` downloads the [siftsmall](http://corpus-texmex.irisa.fr/)
+dataset into `test/bench/datasets/` on first run and fails non-zero if any
+Recall@10 threshold regresses. Full-size SIFT1M is wired but gated — pass
+`--dataset sift1m` to `run_recall.py` to exercise it.
 
 See `AGENTS.md` for full contributor conventions (naming, testing thresholds,
 community-extensions constraints).

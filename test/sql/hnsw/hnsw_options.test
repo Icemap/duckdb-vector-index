@@ -48,8 +48,18 @@ CREATE INDEX idx ON embeddings USING HNSW (vec) WITH (M0 = 0);
 ----
 Binder Error: HNSW index 'M0' must be at least 2
 
+statement error
+CREATE INDEX idx ON embeddings USING HNSW (vec) WITH (rerank = 'foo');
+----
+Binder Error: HNSW index 'rerank' must be an integer
+
+statement error
+CREATE INDEX idx ON embeddings USING HNSW (vec) WITH (rerank = 0);
+----
+Binder Error: HNSW index 'rerank' must be at least 1
+
 # All parameters are in range
 statement ok
-CREATE INDEX idx ON embeddings USING HNSW (vec) WITH (ef_construction = 100, ef_search = 100, M = 3, M0 = 3);
+CREATE INDEX idx ON embeddings USING HNSW (vec) WITH (ef_construction = 100, ef_search = 100, M = 3, M0 = 3, rerank = 10);
 
 

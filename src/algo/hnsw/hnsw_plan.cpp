@@ -46,13 +46,15 @@ PhysicalOperator &HnswIndex::CreatePlan(PlanIndexInput &input) {
 			if (v.type() != LogicalType::VARCHAR) {
 				throw BinderException("HNSW index 'metric' must be a string");
 			}
-			auto metric = v.GetValue<string>();
-			if (HnswIndex::METRIC_KIND_MAP.find(metric) == HnswIndex::METRIC_KIND_MAP.end()) {
-				vector<string> allowed_metrics;
-				for (auto &entry : HnswIndex::METRIC_KIND_MAP) {
-					allowed_metrics.push_back(StringUtil::Format("'%s'", entry.first));
-				}
-				throw BinderException("HNSW index 'metric' must be one of: %s", StringUtil::Join(allowed_metrics, ", "));
+			const auto metric = StringUtil::Lower(v.GetValue<string>());
+			if (metric != "l2sq" && metric != "cosine" && metric != "ip") {
+				throw BinderException("HNSW index 'metric' must be one of: 'l2sq', 'cosine', 'ip'");
+			}
+		} else if (StringUtil::CIEquals(k, "quantizer")) {
+			// Validated by the quantizer factory at construction time.
+		} else if (StringUtil::CIEquals(k, "bits")) {
+			if (v.type() != LogicalType::INTEGER) {
+				throw BinderException("HNSW index 'bits' must be an integer");
 			}
 		} else if (StringUtil::CIEquals(k, "ef_construction")) {
 			if (v.type() != LogicalType::INTEGER) {
@@ -82,6 +84,13 @@ PhysicalOperator &HnswIndex::CreatePlan(PlanIndexInput &input) {
 			if (v.GetValue<int32_t>() < 2) {
 				throw BinderException("HNSW index 'M0' must be at least 2");
 			}
+		} else if (StringUtil::CIEquals(k, "rerank")) {
+			if (v.type() != LogicalType::INTEGER) {
+				throw BinderException("HNSW index 'rerank' must be an integer");
+			}
+			if (v.GetValue<int32_t>() < 1) {
+				throw BinderException("HNSW index 'rerank' must be at least 1");
+			}
 		} else {
 			throw BinderException("Unknown option for HNSW index: '%s'", k);
 		}
@@ -95,14 +104,8 @@ PhysicalOperator &HnswIndex::CreatePlan(PlanIndexInput &input) {
 		throw BinderException("HNSW index keys must be of type FLOAT[N]");
 	}
 	auto &child_type = ArrayType::GetChildType(arr_type);
-	auto child_type_val = HnswIndex::SCALAR_KIND_MAP.find(static_cast<uint8_t>(child_type.id()));
-	if (child_type_val == HnswIndex::SCALAR_KIND_MAP.end()) {
-		vector<string> allowed_types;
-		for (auto &entry : HnswIndex::SCALAR_KIND_MAP) {
-			auto id = static_cast<LogicalTypeId>(entry.first);
-			allowed_types.push_back(StringUtil::Format("'%s[N]'", LogicalType(id).ToString()));
-		}
-		throw BinderException("HNSW index key type must be one of: %s", StringUtil::Join(allowed_types, ", "));
+	if (child_type.id() != LogicalTypeId::FLOAT) {
+		throw BinderException("HNSW index key type must be 'FLOAT[N]'");
 	}
 
 	vector<LogicalType> new_column_types;

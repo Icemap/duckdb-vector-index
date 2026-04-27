@@ -47,6 +47,13 @@ public:
 		return MetricName(GetMetricKind());
 	}
 
+	// Over-fetch factor used by the optimizers when asking the index for
+	// candidates. The index returns `k × GetRerankMultiple()` row_ids; the
+	// upstream TopN / min_by aggregate computes exact distance and keeps the
+	// final top-k. Session override (`vindex_rerank_multiple`) takes precedence
+	// over the index-level default.
+	virtual idx_t GetRerankMultiple(ClientContext &context) const = 0;
+
 	// --- expression matching (used by every optimizer) ----------------------
 	// Returns true if `expr` is a distance function call whose arguments
 	// include this index's column and a constant vector of the right shape.
