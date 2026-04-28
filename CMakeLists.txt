@@ -49,7 +49,14 @@ install(
 # -----------------------------------------------------------------------------
 # Optional: Catch2 unit tests
 # -----------------------------------------------------------------------------
-if(VINDEX_BUILD_UNIT)
+# The unit tests and microbenchmarks reach into DuckDB-internal C++ classes
+# (FixedSizeAllocator, FixedSizeBuffer, DatabaseManager::Get,
+# AttachedDatabase::GetStorageManager, ...). On Linux/macOS the DuckDB shared
+# library exports these symbols by default. On Windows duckdb.lib only exports
+# the public C API — internal symbols lack __declspec(dllexport), so the test
+# binary fails to link. Silently skip building the test/bench binaries on
+# Windows; SQL logic tests (`make test`) still run on every platform.
+if(VINDEX_BUILD_UNIT AND NOT WIN32)
   enable_testing()
   add_subdirectory(test/unit)
 endif()
@@ -57,6 +64,6 @@ endif()
 # -----------------------------------------------------------------------------
 # Optional: microbenchmarks
 # -----------------------------------------------------------------------------
-if(VINDEX_BUILD_BENCH)
+if(VINDEX_BUILD_BENCH AND NOT WIN32)
   add_subdirectory(test/bench)
 endif()
