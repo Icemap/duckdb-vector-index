@@ -9,6 +9,24 @@ single-cell probe), with pluggable quantization — RaBitQ (bits ∈
 {1,2,3,4,5,7,8}, default **3-bit**), PQ, and ScaNN anisotropic PQ — plus
 an optimizer-level rerank pass against the authoritative `FLOAT[d]` column.
 
+## Explore interactively
+
+A live docs site at **<https://icemap.github.io/duckdb-vector-index/>** lets
+you click through every algorithm × quantizer × metric combination and see
+the exact `CREATE INDEX` SQL it would generate, with hover cards covering
+the capability trade-offs of each choice:
+
+<table>
+  <tr>
+    <td><img width="100%" alt="Hierarchy explorer — HNSW + RaBitQ" src="https://github.com/user-attachments/assets/fab1056d-f3fe-4e48-8f8c-0b2267773eb5"></td>
+    <td><img width="100%" alt="Hierarchy explorer — DiskANN + PQ" src="https://github.com/user-attachments/assets/e9a3a3ca-4cf2-4545-8125-3e757688afcb"></td>
+  </tr>
+  <tr>
+    <td><img width="100%" alt="Algorithm capability cards" src="https://github.com/user-attachments/assets/e56bb7a3-4948-40f0-9dc7-328ad5bf648f"></td>
+    <td><img width="100%" alt="Quantizer capability cards" src="https://github.com/user-attachments/assets/7018b0a3-62df-42b1-a5f3-099ab78f094c"></td>
+  </tr>
+</table>
+
 ## Installing
 
 `vindex` is not yet published to DuckDB's official extension repository or
@@ -104,16 +122,7 @@ ORDER BY array_cosine_distance(embedding, [ ... ]::FLOAT[768])
 LIMIT 10;
 ```
 
-## Supported algorithms
-
-| `USING` | Status | Notes |
-| --- | --- | --- |
-| `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
-| `IVF` | supported | IVF-Flat / IVF-RaBitQ / IVF-PQ / IVF-ScaNN; k-means++ centroids + per-list posting buffers |
-| `DISKANN` | supported | Vamana graph with codes held out-of-band; graph blocks evict via the buffer pool so the index can exceed RAM |
-| `SPANN` | supported | IVF with closure replicas — each point is written into every centroid within `closure_factor × d_best`, so boundary points survive a single-cell probe |
-
-### Why not usearch?
+## Why not usearch?
 
 The upstream `duckdb-vss` extension (which this repo forks) wraps
 [`unum-cloud/usearch`](https://github.com/unum-cloud/usearch). We replaced it
@@ -148,7 +157,7 @@ owning the code path is the thing usearch cannot give us:
    is the shared substrate; the usearch blob would have to be torn apart
    anyway.
 
-#### Memory footprint
+### Memory footprint
 
 The bench above deliberately omitted a memory column because a naive RSS
 comparison is misleading. usearch's 14.7 MB resident delta is real but
@@ -180,14 +189,19 @@ either `flat` path can reach. usearch's `f32 / f16 / i8 / b1` options are
 type casts, not compression — none of them can host rotated + bit-packed
 RaBitQ codes.
 
-## Supported quantizers
+## Quantizer defaults
 
-| `quantizer` | Status | Default `bits` | Notes |
-| --- | --- | --- | --- |
-| `flat` | supported | — | no compression, float32 |
-| `rabitq` | supported | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
-| `pq` | supported | 8 | classical product quantization; `m` sub-vector count defaults to `dim/4`, `bits` ∈ {4, 8} |
-| `scann` | supported | 8 | ScaNN anisotropic PQ (Guo et al., ICML 2020); PQ layout plus `eta` (h_parallel / h_perpendicular, default 4) biasing the Lloyd loss toward direction-preserving centroids; `l2sq` / `ip` only |
+For the capability matrix (metrics accepted, trade-offs per
+algorithm / quantizer combination) see the
+[interactive docs](https://icemap.github.io/duckdb-vector-index/). This
+table just pins the `WITH (…)` defaults so you know what you're overriding:
+
+| `quantizer` | Default `bits` | Other overridable options |
+| --- | --- | --- |
+| `flat`   | — | — |
+| `rabitq` | 3 | `bits` ∈ {1, 2, 3, 4, 5, 7, 8} |
+| `pq`     | 8 | `bits` ∈ {4, 8}; `m` defaults to `dim/4` |
+| `scann`  | 8 | `bits` ∈ {4, 8}; `m` defaults to `dim/4`; `eta` (default 4) |
 
 ### Quantizer bits vs recall
 
