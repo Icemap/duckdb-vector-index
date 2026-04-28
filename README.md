@@ -77,23 +77,34 @@ owning the code path is the thing usearch cannot give us:
 #### Memory footprint
 
 The bench above deliberately omitted a memory column because a naive RSS
-comparison is misleading. usearch's resident delta looked ~5× smaller than
-ours, but that number excludes the vectors themselves — the caller's
-`std::vector<float>` holds them and usearch just points at that buffer.
-Like-for-like accounting with caller-owned vectors included:
+comparison is misleading. usearch's 14.7 MB resident delta is real but
+narrow — it measures the bench's mode, which is not the mode a DuckDB index
+actually runs in.
 
-| setup (N=100k, d=128)         | index RSS | caller-held raw `FLOAT[d]` | total |
-| ----------------------------- | --------- | -------------------------- | ----- |
-| usearch (float32, external)   |   14.7 MB |                    51.2 MB | **65.9 MB** |
-| HnswCore + `flat` (same perf) |   75.8 MB |                          0 | **75.8 MB** |
-| HnswCore + `rabitq` 3-bit     |  ~33.6 MB |                          0 | **~33.6 MB** |
+- **In the microbench**, vectors live in a caller-owned `std::vector<float>`
+  and usearch's `add(key, ptr)` just registers a pointer into it — no copy,
+  hence the small RSS. That pointer mode requires the caller to keep the
+  backing array alive for the lifetime of the index.
+- **Inside DuckDB**, column-store `FLOAT[d]` blocks are paged in and out of
+  the buffer pool; there is no stable `float*` an index can hang onto across
+  scans. So `duckdb-vss` has usearch **copy the float32 codes internally** —
+  the external-pointer trick is unavailable. usearch's index RSS in a real
+  DuckDB process is roughly the same as our `flat` path (one float32 per
+  vector, whatever graph overhead on top).
 
-The `flat` row matches the bench and is the fair apples-to-apples number
-against usearch (both paths store float32 codes; we embed them in the node
-block, usearch leaves them in caller memory). The `rabitq` row is the
-default config — since we own the code, we can compress it ~9× and come out
-roughly half of usearch's total footprint, without the caller needing to
-keep a separate raw copy for rerank.
+Index RSS for N=100k, d=128, same hyperparameters as the bench:
+
+| index                     | per-vector code | index RSS |
+| ------------------------- | --------------- | --------- |
+| usearch, bench mode       | 512 B (external)| 14.7 MB (caller holds the 51 MB) |
+| HnswCore + `flat`         | 512 B (inline)  | 75.8 MB   |
+| HnswCore + `rabitq` 3-bit | 56 B (inline)   | ~33.6 MB  |
+
+What actually matters is the `rabitq` row. Owning the code path lets us
+compress the per-vector payload ~9× and pull total index RSS below what
+either `flat` path can reach. usearch's `f32 / f16 / i8 / b1` options are
+type casts, not compression — none of them can host rotated + bit-packed
+RaBitQ codes.
 
 ## Supported quantizers
 
