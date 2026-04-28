@@ -12,6 +12,7 @@
 #include "algo/diskann/diskann_module.hpp"
 #include "algo/hnsw/hnsw_module.hpp"
 #include "algo/ivf/ivf_module.hpp"
+#include "algo/spann/spann_module.hpp"
 
 namespace duckdb {
 namespace vindex {
@@ -50,6 +51,7 @@ void RegisterBuiltInAlgorithms(ExtensionLoader &loader) {
 	hnsw::Register(loader);
 	ivf::Register(loader);
 	diskann::Register(loader);
+	spann::Register(loader);
 	RegisterCompactPragma(loader);
 
 	// 2) Shared optimizers — registered once, dispatch via VectorIndexRegistry.

@@ -51,6 +51,10 @@ CONFIGS = {
     "diskann-pq":          ("DISKANN", "WITH (quantizer='pq', m=16, bits=8, rerank=10, diskann_r=64, diskann_l=100)"),
     "diskann-rabitq3":     ("DISKANN", "WITH (quantizer='rabitq', bits=3, rerank=10, diskann_r=64, diskann_l=100)"),
     "diskann-scann":       ("DISKANN", "WITH (quantizer='scann', m=16, bits=8, eta=4.0, rerank=10, diskann_r=64, diskann_l=100)"),
+    "spann-flat":          ("SPANN", "WITH (nlist=128, nprobe=16, replica_count=8, closure_factor=1.1)"),
+    "spann-rabitq3":       ("SPANN", "WITH (quantizer='rabitq', bits=3, rerank=10, nlist=128, nprobe=16, replica_count=8, closure_factor=1.1)"),
+    "spann-pq":            ("SPANN", "WITH (quantizer='pq', m=16, bits=8, rerank=10, nlist=128, nprobe=16, replica_count=8, closure_factor=1.1)"),
+    "spann-scann":         ("SPANN", "WITH (quantizer='scann', m=16, bits=8, eta=4.0, rerank=10, nlist=128, nprobe=16, replica_count=8, closure_factor=1.1)"),
 }
 
 # Recall@10 thresholds per (algo, dataset). Anything below → non-zero exit.
@@ -71,6 +75,10 @@ THRESHOLDS = {
     ("diskann-pq",          "siftsmall"): 0.90,
     ("diskann-rabitq3",     "siftsmall"): 0.90,
     ("diskann-scann",       "siftsmall"): 0.90,
+    ("spann-flat",          "siftsmall"): 0.90,
+    ("spann-rabitq3",       "siftsmall"): 0.90,
+    ("spann-pq",            "siftsmall"): 0.90,
+    ("spann-scann",         "siftsmall"): 0.90,
     ("hnsw-flat",           "sift1m"):    0.98,
     ("hnsw-rabitq3",        "sift1m"):    0.99,
     ("hnsw-rabitq1-rerank", "sift1m"):    0.90,
@@ -83,6 +91,10 @@ THRESHOLDS = {
     ("diskann-pq",          "sift1m"):    0.95,
     ("diskann-rabitq3",     "sift1m"):    0.95,
     ("diskann-scann",       "sift1m"):    0.95,
+    ("spann-flat",          "sift1m"):    0.95,
+    ("spann-rabitq3",       "sift1m"):    0.95,
+    ("spann-pq",            "sift1m"):    0.95,
+    ("spann-scann",         "sift1m"):    0.95,
 }
 
 

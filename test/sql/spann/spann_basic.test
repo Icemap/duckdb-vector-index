@@ -1,0 +1,51 @@
+# name: test/sql/spann/spann_basic.test
+# group: [spann]
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+# SPANN defaults mirror the paper (§3.1): replica_count=8, closure_factor=1.1.
+statement ok
+CREATE INDEX my_idx ON t1 USING SPANN (vec) WITH (nlist=8);
+
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+# Replica / closure knobs are SPANN-specific.
+statement ok
+CREATE INDEX my_idx_rc ON t1 USING SPANN (vec) WITH (nlist=8, replica_count=4, closure_factor=1.3);
+
+# Unknown option should fail at bind.
+statement error
+CREATE INDEX bad_idx ON t1 USING SPANN (vec) WITH (nolist=8);
+----
+Unknown option for SPANN index
+
+# replica_count must be >= 1.
+statement error
+CREATE INDEX bad_idx ON t1 USING SPANN (vec) WITH (nlist=8, replica_count=0);
+----
+replica_count
+
+# closure_factor must be >= 1.
+statement error
+CREATE INDEX bad_idx ON t1 USING SPANN (vec) WITH (nlist=8, closure_factor=0.5);
+----
+closure_factor

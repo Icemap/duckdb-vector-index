@@ -6,11 +6,12 @@ HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 **RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
 
 > **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), DiskANN (Vamana graph with
-> codes stored out-of-band so the graph can be evicted past RAM), and the
-> quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}), PQ (classical product
-> quantization), and ScaNN (anisotropic PQ) are all supported, with an
-> optimizer-level rerank pass, persistence across restarts, SQL + unit
-> tests green, and a recall harness wired up (`make bench`). SPANN is next.
+> codes stored out-of-band so the graph can be evicted past RAM), SPANN
+> (IVF + closure-replica writes so boundary points survive a single-cell
+> probe), and the quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}), PQ (classical
+> product quantization), and ScaNN (anisotropic PQ) are all supported,
+> with an optimizer-level rerank pass, persistence across restarts, SQL
+> + unit tests green, and a recall harness wired up (`make bench`).
 
 ## Installing
 
@@ -93,6 +94,13 @@ CREATE INDEX docs_idx ON docs USING DISKANN (embedding)
     WITH (metric='cosine', quantizer='pq', bits=8, rerank=10,
           diskann_r=64, diskann_l=100);
 
+-- SPANN — IVF with closure replicas. Boundary points are written into
+-- every centroid within `closure_factor × d_best`, so a single-cell
+-- probe still finds them. Paper defaults: replica_count=8, closure_factor=1.1.
+CREATE INDEX docs_idx ON docs USING SPANN (embedding)
+    WITH (metric='cosine', quantizer='rabitq', bits=3, rerank=10,
+          nlist=1024, nprobe=32, replica_count=8, closure_factor=1.1);
+
 -- Query uses the standard DuckDB distance function; the index kicks in.
 SELECT id, embedding
 FROM docs
@@ -107,8 +115,7 @@ LIMIT 10;
 | `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
 | `IVF` | supported | IVF-Flat / IVF-RaBitQ / IVF-PQ; k-means++ centroids + per-list posting buffers |
 | `DISKANN` | supported | Vamana graph with codes held out-of-band; graph blocks evict via the buffer pool so the index can exceed RAM |
-| `SCANN` | planned (M4) | anisotropic quantization |
-| `SPANN` | planned (M4) | in-memory centroids + disk postings |
+| `SPANN` | supported | IVF with closure replicas — each point is written into every centroid within `closure_factor × d_best`, so boundary points survive a single-cell probe |
 
 ### Why not usearch?
 

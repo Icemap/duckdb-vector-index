@@ -1,0 +1,67 @@
+#pragma once
+
+#include "duckdb/common/enums/operator_result_type.hpp"
+#include "duckdb/common/enums/physical_operator_type.hpp"
+#include "duckdb/common/typedefs.hpp"
+#include "duckdb/common/types.hpp"
+#include "duckdb/common/unique_ptr.hpp"
+#include "duckdb/common/vector.hpp"
+#include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/parser/parsed_data/create_index_info.hpp"
+#include "duckdb/planner/expression.hpp"
+#include "duckdb/storage/buffer_manager.hpp"
+#include "duckdb/storage/index.hpp"
+#include "duckdb/storage/index_storage_info.hpp"
+
+namespace duckdb {
+class DuckTableEntry;
+
+namespace vindex {
+namespace spann {
+
+// Parallel CREATE INDEX ... USING SPANN operator. Mirrors PhysicalCreateIvfIndex
+// with the same Sink/Combine/Finalize shape — SPANN differs from IVF only in
+// how Insert writes replicas, not in how construction is orchestrated.
+class PhysicalCreateSpannIndex : public PhysicalOperator {
+public:
+	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
+
+	PhysicalCreateSpannIndex(PhysicalPlan &physical_plan, const vector<LogicalType> &types_p, TableCatalogEntry &table,
+	                         const vector<column_t> &column_ids, unique_ptr<CreateIndexInfo> info,
+	                         vector<unique_ptr<Expression>> unbound_expressions, idx_t estimated_cardinality);
+
+	DuckTableEntry &table;
+	vector<column_t> storage_ids;
+	unique_ptr<CreateIndexInfo> info;
+	vector<unique_ptr<Expression>> unbound_expressions;
+	const bool sorted;
+
+	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+	                                 OperatorSourceInput &input) const override {
+		return SourceResultType::FINISHED;
+	}
+	bool IsSource() const override {
+		return true;
+	}
+
+	unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
+	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
+	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
+	SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
+	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+	                          OperatorSinkFinalizeInput &input) const override;
+
+	bool IsSink() const override {
+		return true;
+	}
+	bool ParallelSink() const override {
+		return true;
+	}
+
+	ProgressData GetSinkProgress(ClientContext &context, GlobalSinkState &gstate,
+	                             ProgressData source_progress) const override;
+};
+
+} // namespace spann
+} // namespace vindex
+} // namespace duckdb
