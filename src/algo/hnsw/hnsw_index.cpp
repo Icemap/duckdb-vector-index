@@ -16,7 +16,6 @@
 #include "duckdb/common/types/validity_mask.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
-#include "duckdb/common/vector/array_vector.hpp"
 #include "duckdb/common/vector_size.hpp"
 #include "duckdb/execution/index/index_type.hpp"
 #include "duckdb/execution/index/index_type_set.hpp"
@@ -424,7 +423,7 @@ idx_t HnswIndex::Scan(IndexScanState &state, Vector &result, idx_t result_offset
 	auto &scan_state = state.Cast<HnswIndexScanState>();
 
 	idx_t count = 0;
-	auto row_ids = FlatVector::GetDataMutable<row_t>(result) + result_offset;
+	auto row_ids = FlatVector::GetData<row_t>(result) + result_offset;
 	while (count < STANDARD_VECTOR_SIZE && scan_state.current_row < scan_state.total_rows) {
 		row_ids[count++] = scan_state.row_ids[scan_state.current_row++];
 	}
@@ -472,7 +471,7 @@ idx_t HnswIndex::ExecuteMultiScan(IndexScanState &state_p, float *query_vector, 
 
 const Vector &HnswIndex::GetMultiScanResult(IndexScanState &state) {
 	auto &scan_state = state.Cast<MultiScanState>();
-	FlatVector::SetData(scan_state.vec, (data_ptr_t)scan_state.row_ids.data(), count_t(scan_state.row_ids.size()));
+	FlatVector::SetData(scan_state.vec, (data_ptr_t)scan_state.row_ids.data());
 	return scan_state.vec;
 }
 
@@ -485,7 +484,7 @@ void HnswIndex::ResetMultiScan(IndexScanState &state) {
 // Construction + mutation
 //------------------------------------------------------------------------------
 
-void HnswIndex::ResetStorage(IndexLock &index_lock) {
+void HnswIndex::CommitDrop(IndexLock &index_lock) {
 	auto lock = rwlock.GetExclusiveLock();
 	// Drop everything the index owns. Metadata accessors (metric_, dim_,
 	// params_) stay valid — usearch's old behavior kept them readable after

@@ -62,7 +62,7 @@ public:
 
 	// --- DuckDB BoundIndex hooks --------------------------------------------
 	ErrorData Append(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
-	void ResetStorage(IndexLock &index_lock) override;
+	void CommitDrop(IndexLock &index_lock) override;
 	void Delete(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
 	ErrorData Insert(IndexLock &lock, DataChunk &data, Vector &row_ids) override;
 

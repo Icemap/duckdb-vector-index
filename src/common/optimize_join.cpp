@@ -17,8 +17,6 @@
 #include "duckdb/planner/operator/logical_join.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/operator/logical_window.hpp"
-#include "duckdb/common/vector/array_vector.hpp"
-#include "duckdb/storage/data_table.hpp"
 #include "duckdb/storage/storage_index.hpp"
 #include "duckdb/storage/table/data_table_info.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
@@ -66,7 +64,7 @@ public:
 	idx_t limit;
 
 	vector<column_t> inner_column_ids;
-	vector<ProjectionIndex> inner_projection_ids;
+	vector<idx_t> inner_projection_ids;
 
 	idx_t outer_vector_column;
 	idx_t inner_vector_column;
@@ -118,9 +116,9 @@ OperatorResultType PhysicalVectorIndexJoin::Execute(ExecutionContext &context, D
 	auto &rhs_vector_vector = input.data[outer_vector_column];
 	auto &rhs_vector_child = ArrayVector::GetEntry(rhs_vector_vector);
 	const auto rhs_vector_size = ArrayType::GetSize(rhs_vector_vector.GetType());
-	const auto rhs_vector_ptr = FlatVector::GetDataMutable<float>(rhs_vector_child);
+	const auto rhs_vector_ptr = FlatVector::GetData<float>(rhs_vector_child);
 
-	const auto row_number_vector = FlatVector::GetDataMutable<int64_t>(chunk.data[MATCH_COLUMN_OFFSET]);
+	const auto row_number_vector = FlatVector::GetData<int64_t>(chunk.data[MATCH_COLUMN_OFFSET]);
 
 	index.ResetMultiScan(*state.index_state);
 
@@ -165,7 +163,7 @@ InsertionOrderPreservingMap<string> PhysicalVectorIndexJoin::ParamsToString() co
 
 class LogicalVectorIndexJoin final : public LogicalExtensionOperator {
 public:
-	LogicalVectorIndexJoin(const TableIndex table_index_p, DuckTableEntry &table_p, VectorIndex &index_p,
+	LogicalVectorIndexJoin(const idx_t table_index_p, DuckTableEntry &table_p, VectorIndex &index_p,
 	                       const idx_t limit_p)
 	    : table_index(table_index_p), table(table_p), index(index_p), limit(limit_p) {
 	}
@@ -180,13 +178,13 @@ public:
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override;
 	idx_t EstimateCardinality(ClientContext &context) override;
 
-	TableIndex table_index;
+	idx_t table_index;
 	DuckTableEntry &table;
 	VectorIndex &index;
 	idx_t limit;
 
 	vector<column_t> inner_column_ids;
-	vector<ProjectionIndex> inner_projection_ids;
+	vector<idx_t> inner_projection_ids;
 	vector<LogicalType> inner_returned_types;
 
 	idx_t outer_vector_column;
@@ -227,14 +225,14 @@ vector<ColumnBinding> LogicalVectorIndexJoin::GetLeftBindings() {
 	vector<ColumnBinding> result;
 	if (inner_projection_ids.empty()) {
 		for (idx_t col_idx = 0; col_idx < inner_column_ids.size(); col_idx++) {
-			result.emplace_back(table_index, ProjectionIndex(col_idx));
+			result.emplace_back(table_index, col_idx);
 		}
 	} else {
 		for (auto proj_id : inner_projection_ids) {
 			result.emplace_back(table_index, proj_id);
 		}
 	}
-	result.emplace_back(table_index, ProjectionIndex(inner_column_ids.size()));
+	result.emplace_back(table_index, inner_column_ids.size());
 	return result;
 }
 
@@ -521,13 +519,13 @@ bool VectorIndexJoinOptimizer::TryOptimize(Binder &binder, ClientContext &contex
 		auto &old_type = delim_types[i];
 		projection_expressions.push_back(make_uniq<BoundColumnRefExpression>(old_type, old_binding));
 		replacer.replacement_bindings.emplace_back(old_binding,
-		                                           ColumnBinding(projection_table_index, ProjectionIndex(new_binding_idx++)));
+		                                           ColumnBinding(projection_table_index, new_binding_idx++));
 	}
 
-	ColumnBinding window_binding(window.window_index, ProjectionIndex(0));
+	ColumnBinding window_binding(window.window_index, 0);
 	projection_expressions.push_back(make_uniq<BoundColumnRefExpression>(LogicalType::BIGINT, window_binding));
 	replacer.replacement_bindings.emplace_back(window_binding,
-	                                           ColumnBinding(projection_table_index, ProjectionIndex(new_binding_idx++)));
+	                                           ColumnBinding(projection_table_index, new_binding_idx++));
 
 	auto new_projection = make_uniq<LogicalProjection>(projection_table_index, std::move(projection_expressions));
 	replacer.VisitOperator(*root);
@@ -551,8 +549,7 @@ bool VectorIndexJoinOptimizer::TryOptimize(Binder &binder, ClientContext &contex
 			const auto &inner_expr = inner_proj.expressions[ref.binding.column_index];
 			expr = inner_expr->Copy();
 		} else if (ref.binding.table_index == window.window_index) {
-			ColumnBinding index_row_number_binding(index_join->table_index,
-			                                       ProjectionIndex(index_join->inner_column_ids.size()));
+			ColumnBinding index_row_number_binding(index_join->table_index, index_join->inner_column_ids.size());
 			expr = make_uniq<BoundColumnRefExpression>(LogicalType::BIGINT, index_row_number_binding);
 		}
 	}
