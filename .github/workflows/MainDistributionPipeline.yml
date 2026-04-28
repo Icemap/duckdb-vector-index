@@ -1,11 +1,11 @@
 # Main build pipeline for the vindex extension.
 #
-# Trigger surfaces:
-#   - push to main          -> build + smoke test (no release)
-#   - pull_request          -> build + smoke test
-#   - workflow_dispatch     -> manual "build now" button in the Actions UI
-#   - push of a tag v*      -> build + publish a GitHub Release with the
-#                              per-arch .duckdb_extension artifacts attached
+# Trigger surfaces (deliberately narrow to conserve Actions minutes):
+#   - push of a tag v*   -> build the full multi-arch matrix AND publish a
+#                           GitHub Release with the .duckdb_extension
+#                           artifacts attached.
+#   - workflow_dispatch  -> manual "Run workflow" button in the Actions UI
+#                           for dry-running the build without cutting a tag.
 #
 # The heavy lifting (multi-arch build + vcpkg cache + smoke tests) is done by
 # the official reusable workflow from duckdb/extension-ci-tools. We only add
@@ -15,13 +15,8 @@
 name: Main Extension Distribution Pipeline
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
