@@ -12,11 +12,65 @@ HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 > persistence across restarts, SQL + unit tests green, and a recall harness
 > wired up (`make bench`). ScaNN / SPANN are next.
 
+## Installing
+
+`vindex` is not yet published to DuckDB's official extension repository or
+the community-extensions repository, so `INSTALL vindex;` will not work.
+Install from source or from the GitHub release artifact.
+
+### From source
+
+```sh
+git clone https://github.com/Icemap/duckdb-vector-index.git
+cd duckdb-vector-index
+./scripts/bootstrap.sh   # pulls the duckdb + extension-ci-tools submodules
+make                     # release build → build/release/extension/vindex/vindex.duckdb_extension
+```
+
+Then load the unsigned build into DuckDB:
+
+```sql
+-- duckdb -unsigned
+LOAD 'build/release/extension/vindex/vindex.duckdb_extension';
+```
+
+Or, inside a session started without `-unsigned`:
+
+```sql
+SET allow_unsigned_extensions = true;
+LOAD 'build/release/extension/vindex/vindex.duckdb_extension';
+```
+
+### From a GitHub release
+
+Download the platform-matching `vindex.<arch>.duckdb_extension` (for
+example `vindex.linux_amd64.duckdb_extension`,
+`vindex.osx_arm64.duckdb_extension`, …) from the
+[Releases](https://github.com/Icemap/duckdb-vector-index/releases) page
+and `LOAD '<path>'` it the same way. DuckDB versions must match exactly
+(the extension is ABI-tied to the DuckDB version it was built against).
+
+Release artifacts are produced by
+`.github/workflows/MainDistributionPipeline.yml`, which calls DuckDB's
+reusable extension-distribution workflow for every supported
+architecture and attaches the resulting `.duckdb_extension` files to a
+GitHub Release. To cut a new release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag push triggers the pipeline; when every per-arch build finishes,
+the `release` job publishes the Release with all artifacts attached. A
+manual run (without cutting a tag) is available via the **Run workflow**
+button in the Actions tab — it will build and test the matrix but skip
+the release step.
+
 ## Quickstart (target UX)
 
 ```sql
-INSTALL vindex;
-LOAD vindex;
+-- After loading the extension as shown above:
 
 CREATE TABLE docs (id INT, embedding FLOAT[768]);
 -- ... populate from your model of choice ...

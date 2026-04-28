@@ -1,28 +1,33 @@
 # Metadata for duckdb/community-extensions registration.
-# Filled out once M1 (RaBitQ) is ready for public distribution.
 extension:
   name: vindex
   description: |
-    General-purpose vector index extension for DuckDB: HNSW, IVF, DiskANN,
-    ScaNN, SPANN, with pluggable quantization (RaBitQ by default at 3 bits,
-    delivering >99% Recall@10 on standard ANN benchmarks).
-  version: 0.0.0
+    Vector similarity search for DuckDB. Supports HNSW, IVF, and DiskANN
+    indexes with pluggable quantization (flat, RaBitQ, PQ); RaBitQ at 3
+    bits delivers >99% Recall@10 on SIFT1M with an optimizer-level rerank
+    pass.
+  version: 0.1.0
   language: C++
   build: cmake
   license: MIT
   maintainers:
-    - cheese
-  requires_toolchains: parquet;json
+    - Icemap
 
 repo:
-  github: cheese/duckdb-vector-index
-  ref: main
+  github: Icemap/duckdb-vector-index
+  ref: v0.1.0
 
 docs:
   # Community-extensions serves these on duckdb.org/community_extensions/
   hello_world: |
+    INSTALL vindex FROM community;
     LOAD vindex;
-    CREATE TABLE t(v FLOAT[128]);
-    CREATE INDEX idx ON t USING HNSW (v)
+
+    CREATE TABLE docs (id INT, embedding FLOAT[128]);
+    CREATE INDEX docs_idx ON docs USING HNSW (embedding)
       WITH (metric='l2sq', quantizer='rabitq', bits=3);
-    SELECT * FROM t ORDER BY array_distance(v, $query) LIMIT 10;
+
+    SELECT id
+    FROM docs
+    ORDER BY array_distance(embedding, [0.0, 0.1, ... ]::FLOAT[128])
+    LIMIT 10;

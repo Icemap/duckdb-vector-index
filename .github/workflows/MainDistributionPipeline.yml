@@ -1,0 +1,75 @@
+# Main build pipeline for the vindex extension.
+#
+# Trigger surfaces:
+#   - push to main          -> build + smoke test (no release)
+#   - pull_request          -> build + smoke test
+#   - workflow_dispatch     -> manual "build now" button in the Actions UI
+#   - push of a tag v*      -> build + publish a GitHub Release with the
+#                              per-arch .duckdb_extension artifacts attached
+#
+# The heavy lifting (multi-arch build + vcpkg cache + smoke tests) is done by
+# the official reusable workflow from duckdb/extension-ci-tools. We only add
+# a thin `release` job on top that downloads the produced artifacts and
+# attaches them to a GitHub Release.
+
+name: Main Extension Distribution Pipeline
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  duckdb-stable-build:
+    name: Build extension (DuckDB v1.5.2)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.2
+    with:
+      extension_name: vindex
+      duckdb_version: v1.5.2
+      ci_tools_version: v1.5.2
+      # Skip WASM builds for now; add them back when you want browser support.
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads'
+
+  release:
+    name: Publish GitHub Release
+    needs: duckdb-stable-build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all extension artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Each arch lands under artifacts/<name>-<duckdb_version>-extension-<arch>/
+      # containing a single `<name>.duckdb_extension` file. Flatten + rename so
+      # the release page shows unambiguous per-arch filenames.
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          shopt -s nullglob
+          for dir in artifacts/vindex-*-extension-*; do
+            arch="${dir#artifacts/vindex-*-extension-}"
+            cp "$dir/vindex.duckdb_extension" \
+               "release/vindex.${arch}.duckdb_extension"
+          done
+          ls -lh release
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/vindex.*.duckdb_extension
+          generate_release_notes: true
+          fail_on_unmatched_files: true
