@@ -1,0 +1,40 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DetailPage from '../../components/DetailPage.astro';
+import { findNode } from '../../data/nodes';
+const node = findNode('scann')!;
+---
+
+<BaseLayout title={`${node.label} — DuckDB Vector Index`} tagline={node.blurb}>
+  <DetailPage node={node}>
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">At a glance</h2>
+    <p class="text-sm text-gray-300 leading-relaxed mb-6">
+      ScaNN's anisotropic loss re-weights quantization error along the direction of the
+      query-data inner product. In classical PQ, k-means minimizes isotropic L2 error — treating
+      every direction equally. ScaNN instead biases the Lloyd loop to place centroids that
+      preserve the component of each vector <em>parallel</em> to the expected query direction
+      (<code class="font-mono text-teal-soft">eta</code> = η = h_parallel / h_perpendicular).
+      This yields significantly more accurate inner-product estimates than classical PQ at
+      matched memory.
+    </p>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Parameters</h2>
+    <div class="overflow-x-auto mb-8">
+      <table class="w-full text-sm border border-ink-600">
+        <thead class="bg-ink-800 text-gray-400 font-mono text-xs uppercase tracking-wider">
+          <tr><th class="text-left px-4 py-2">Option</th><th class="text-left px-4 py-2">Default</th><th class="text-left px-4 py-2">Notes</th></tr>
+        </thead>
+        <tbody class="text-gray-300">
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">m / bits</td><td class="px-4 py-2 font-mono">dim/4 / 8</td><td class="px-4 py-2">Same shape as PQ — ScaNN re-uses the PQ code layout.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">eta</td><td class="px-4 py-2 font-mono">4.0</td><td class="px-4 py-2">Anisotropy strength. η=1 collapses to classical PQ; η→∞ maximizes parallel-direction fidelity.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">metric</td><td class="px-4 py-2 font-mono">l2sq / ip</td><td class="px-4 py-2">Cosine is not supported directly — normalize vectors and use ip.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Example</h2>
+<pre class="bg-ink-800 border border-ink-700 p-4 font-mono text-xs overflow-x-auto"><code>CREATE INDEX docs_idx ON docs USING IVF (embedding)
+    WITH (metric='ip', quantizer='scann', m=16, bits=8, eta=4.0, rerank=10,
+          nlist=1024, nprobe=32);</code></pre>
+  </DetailPage>
+</BaseLayout>

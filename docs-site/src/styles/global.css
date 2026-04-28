@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg-base: #2B2B2B;
+  --bg-panel: #1E1E1E;
+  --accent-blue: #29C5FF;
+  --accent-green: #98F2D1;
+  --accent-yellow: #F0CF65;
+  --text-main: #D4D4D4;
+  --text-dim: #999999;
+  --text-on-accent: #1A1A1A;
+  --border-color: #404040;
+}
+
+html,
+body {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Panel-header chip: "HIERARCHY & ARCHITECTURE", "SQL ...", "FEATURE MATRICES" */
+.panel-header {
+  background-color: var(--accent-green);
+  color: var(--text-on-accent);
+  padding: 6px 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.panel-header--muted {
+  background-color: var(--mid, #333);
+  color: var(--text-dim);
+}
+
+/* --- Tree pills (the rectangles + ovals on the left) ------------------- */
+.node-box {
+  background-color: var(--accent-blue);
+  color: var(--text-on-accent);
+  padding: 4px 12px;
+  min-width: 100px;
+  text-align: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.node-box--outline {
+  background-color: var(--bg-panel);
+  color: var(--accent-blue);
+  border: 1px solid var(--accent-blue);
+}
+.node-box--green {
+  background-color: var(--accent-green);
+  color: var(--text-on-accent);
+}
+.node-box--disabled {
+  background-color: transparent;
+  color: #555;
+  border: 1px dashed #555;
+  cursor: not-allowed;
+}
+
+.node-connector {
+  width: 40px;
+  height: 1px;
+  background-color: var(--accent-green);
+  margin: 0 10px;
+  flex-shrink: 0;
+}
+
+.node-label {
+  background-color: rgba(152, 242, 209, 0.15);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.node-label--muted {
+  background-color: transparent;
+  color: var(--text-dim);
+  border-color: #555;
+}
+
+/* --- SQL code container (right panel) ---------------------------------- */
+.code-line {
+  display: block;
+  min-height: 1.5em;
+}
+.code-comment { color: var(--text-dim); }
+.code-tag     { color: var(--accent-blue); }
+.code-attr    { color: var(--accent-green); }
+.code-string  { color: var(--accent-yellow); }
+.code-highlight {
+  background-color: rgba(240, 207, 101, 0.2);
+  border-left: 3px solid var(--accent-yellow);
+  padding-left: 17px;
+  margin-left: -20px;
+}
+
+/* --- Install strip buttons --------------------------------------------- */
+.install-cmd {
+  background: #000;
+  padding: 6px 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--accent-yellow);
+  border: 1px solid #333;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.install-cmd:hover {
+  border-color: var(--accent-yellow);
+}
+.install-cmd--copied {
+  color: var(--accent-green) !important;
+  border-color: var(--accent-green);
+}
+
+/* --- Scroll-hint chevron at bottom of first viewport ------------------- */
+.scroll-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  color: var(--accent-green);
+  animation: scroll-hint-bob 1.8s ease-in-out infinite;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 10;
+}
+@keyframes scroll-hint-bob {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, 6px); }
+}

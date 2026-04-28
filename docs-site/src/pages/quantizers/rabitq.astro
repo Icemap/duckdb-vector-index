@@ -1,0 +1,61 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DetailPage from '../../components/DetailPage.astro';
+import { findNode } from '../../data/nodes';
+const node = findNode('rabitq')!;
+---
+
+<BaseLayout title={`${node.label} — DuckDB Vector Index`} tagline={node.blurb}>
+  <DetailPage node={node}>
+    <aside class="mb-10 border-l-4 border-teal-soft bg-teal-soft/5 px-6 py-5">
+      <div class="font-mono text-[11px] uppercase tracking-[0.18em] text-teal-soft mb-2">
+        Extended RaBitQ (b-bit generalization)
+      </div>
+      <h3 class="text-base font-semibold text-gray-100 mb-2">
+        <a href="https://dl.acm.org/doi/10.1145/3725333" target="_blank" rel="noreferrer noopener" class="hover:underline">
+          Practical and Asymptotically Optimal Quantization of High-Dimensional Vectors in Euclidean Space for ANN Search
+        </a>
+      </h3>
+      <p class="text-sm text-gray-300 mb-1">Gao, J.; Long, C.</p>
+      <p class="text-xs font-mono uppercase tracking-wider text-gray-500 mb-3">SIGMOD 2025</p>
+      <p class="text-sm text-gray-400 leading-relaxed">
+        Extended-RaBitQ generalizes the 1-bit quantizer to an arbitrary b-bit scheme (b ∈ {'{'}1,2,3,4,5,7,8{'}'})
+        with an asymptotically optimal error bound. vindex ships the <code class="font-mono text-teal-soft">bits</code>
+        option on top of this.
+      </p>
+    </aside>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Recall vs bits</h2>
+    <p class="text-sm text-gray-300 leading-relaxed mb-4">
+      Low-bit RaBitQ is a <strong>coarse filter</strong> — on its own the estimated distances are noisy.
+      Pair it with a rerank pass (<code class="font-mono text-teal-soft">rerank=N</code>): pull the top
+      k×N candidates, re-score them against the authoritative FLOAT[d] column. The operator plan is
+      uniform regardless of N: <code class="font-mono text-gray-400">TOP_N ← PROJECTION ← VINDEX_INDEX_SCAN</code>.
+    </p>
+    <div class="overflow-x-auto mb-8">
+      <table class="w-full text-sm border border-ink-600">
+        <thead class="bg-ink-800 text-gray-400 font-mono text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left px-4 py-2">bits</th>
+            <th class="text-left px-4 py-2">No rerank</th>
+            <th class="text-left px-4 py-2">+10× rerank</th>
+            <th class="text-left px-4 py-2">+20× rerank</th>
+            <th class="text-left px-4 py-2">Bytes / vec (d=128)</th>
+          </tr>
+        </thead>
+        <tbody class="text-gray-300">
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">1</td><td class="px-4 py-2">~0.40</td><td class="px-4 py-2">~0.85</td><td class="px-4 py-2">≥0.90</td><td class="px-4 py-2 font-mono">24 B</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">2</td><td class="px-4 py-2">~0.60</td><td class="px-4 py-2">~0.95</td><td class="px-4 py-2">≥0.97</td><td class="px-4 py-2 font-mono">40 B</td></tr>
+          <tr class="border-t border-ink-700 bg-teal-accent/5"><td class="px-4 py-2 font-mono font-semibold text-teal-accent">3 (default)</td><td class="px-4 py-2">~0.80</td><td class="px-4 py-2">≥0.98</td><td class="px-4 py-2">≥0.99</td><td class="px-4 py-2 font-mono">56 B</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">4</td><td class="px-4 py-2">~0.90</td><td class="px-4 py-2">≥0.99</td><td class="px-4 py-2">≥0.99</td><td class="px-4 py-2 font-mono">72 B</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">8</td><td class="px-4 py-2">~0.99</td><td class="px-4 py-2">≥0.99</td><td class="px-4 py-2">≥0.99</td><td class="px-4 py-2 font-mono">136 B</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">float32</td><td class="px-4 py-2">1.00</td><td class="px-4 py-2">1.00</td><td class="px-4 py-2">1.00</td><td class="px-4 py-2 font-mono">512 B</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Example</h2>
+<pre class="bg-ink-800 border border-ink-700 p-4 font-mono text-xs overflow-x-auto"><code>CREATE INDEX docs_idx ON docs USING HNSW (embedding)
+    WITH (metric='cosine', quantizer='rabitq', bits=3, rerank=10);</code></pre>
+  </DetailPage>
+</BaseLayout>

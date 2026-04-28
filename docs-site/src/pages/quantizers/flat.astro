@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DetailPage from '../../components/DetailPage.astro';
+import { findNode } from '../../data/nodes';
+const node = findNode('flat')!;
+---
+
+<BaseLayout title={`${node.label} — DuckDB Vector Index`} tagline={node.blurb}>
+  <DetailPage node={node}>
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">When to use it</h2>
+    <p class="text-sm text-gray-300 leading-relaxed mb-6">
+      Flat stores the raw float32 vector inside the index — no compression, no rerank needed.
+      It is the correctness baseline: recall equals brute-force up to graph-search pruning.
+      Choose it when the dataset fits in memory at float32 and absolute recall matters more
+      than memory footprint.
+    </p>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Example</h2>
+<pre class="bg-ink-800 border border-ink-700 p-4 font-mono text-xs overflow-x-auto"><code>CREATE INDEX docs_idx ON docs USING HNSW (embedding)
+    WITH (metric='cosine', quantizer='flat');</code></pre>
+  </DetailPage>
+</BaseLayout>

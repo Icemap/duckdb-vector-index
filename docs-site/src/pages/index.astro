@@ -1,0 +1,57 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import HierarchyExplorer from '../components/HierarchyExplorer.tsx';
+import FeatureDetails from '../components/FeatureDetails.tsx';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<BaseLayout title="DuckDB Vector Search Extension">
+  <!-- Hero content fills the remaining viewport height after header + install
+       strip so the hierarchy + SQL panels expand to fit. -->
+  <div
+    id="hero"
+    style="min-height: calc(100vh - 120px - 48px); display: flex; flex-direction: column;"
+  >
+    <div style="flex: 1; display: flex;">
+      <div style="flex: 1; display: flex; flex-direction: column;">
+        <HierarchyExplorer basePath={base} client:load />
+      </div>
+    </div>
+  </div>
+
+  <FeatureDetails basePath={base} client:load />
+
+  <!-- Scroll chevron: rendered only when the page actually overflows. Fades
+       out once the user scrolls past a quarter of the first viewport. -->
+  <div id="scroll-hint" class="scroll-hint" aria-hidden="true" style="display:none;">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"></polyline>
+    </svg>
+  </div>
+
+  <script is:inline>
+    (() => {
+      const hint = document.getElementById('scroll-hint');
+      if (!hint) return;
+      const update = () => {
+        const doc = document.scrollingElement || document.documentElement;
+        const overflow = doc.scrollHeight - window.innerHeight;
+        const y = window.scrollY || 0;
+        const threshold = window.innerHeight * 0.25;
+        if (overflow < 40) {
+          hint.style.display = 'none';
+          return;
+        }
+        hint.style.display = 'block';
+        hint.style.opacity = y > threshold ? '0' : '1';
+      };
+      window.addEventListener('scroll', update, { passive: true });
+      window.addEventListener('resize', update);
+      // re-check on hydration & after fonts/layout settle
+      window.setTimeout(update, 50);
+      window.setTimeout(update, 400);
+      update();
+    })();
+  </script>
+</BaseLayout>

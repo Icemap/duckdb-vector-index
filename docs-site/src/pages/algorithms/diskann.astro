@@ -1,0 +1,38 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DetailPage from '../../components/DetailPage.astro';
+import { findNode } from '../../data/nodes';
+const node = findNode('diskann')!;
+---
+
+<BaseLayout title={`${node.label} — DuckDB Vector Index`} tagline={node.blurb}>
+  <DetailPage node={node}>
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">At a glance</h2>
+    <p class="text-sm text-gray-300 leading-relaxed mb-6">
+      DiskANN builds a <strong>Vamana</strong> graph tuned for billion-scale on-disk ANN. Unlike HNSW, the
+      graph's neighbor blocks do not inline the vector codes — codes live in a separate, always-resident
+      array, and the graph blocks evict through DuckDB's buffer pool. This decoupling lets the index
+      grow past RAM while maintaining &gt;95% Recall@10 at L_search=100.
+    </p>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Parameters</h2>
+    <div class="overflow-x-auto mb-8">
+      <table class="w-full text-sm border border-ink-600">
+        <thead class="bg-ink-800 text-gray-400 font-mono text-xs uppercase tracking-wider">
+          <tr><th class="text-left px-4 py-2">Option</th><th class="text-left px-4 py-2">Default</th><th class="text-left px-4 py-2">Notes</th></tr>
+        </thead>
+        <tbody class="text-gray-300">
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">diskann_r</td><td class="px-4 py-2 font-mono">64</td><td class="px-4 py-2">Max out-degree per node (paper's R).</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">diskann_l</td><td class="px-4 py-2 font-mono">100</td><td class="px-4 py-2">Beam size for both build and query (paper's L / Lsearch).</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">diskann_alpha</td><td class="px-4 py-2 font-mono">1.2</td><td class="px-4 py-2">Robust-prune parameter — higher prefers long-range edges.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">quantizer</td><td class="px-4 py-2 font-mono">required</td><td class="px-4 py-2">Must be pq or rabitq. flat is rejected — the out-of-band-code layout assumes compression.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Example</h2>
+<pre class="bg-ink-800 border border-ink-700 p-4 font-mono text-xs overflow-x-auto"><code>CREATE INDEX docs_idx ON docs USING DISKANN (embedding)
+    WITH (metric='cosine', quantizer='pq', m=16, bits=8, rerank=10,
+          diskann_r=64, diskann_l=100);</code></pre>
+  </DetailPage>
+</BaseLayout>

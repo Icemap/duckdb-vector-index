@@ -1,0 +1,39 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DetailPage from '../../components/DetailPage.astro';
+import { findNode } from '../../data/nodes';
+const node = findNode('hnsw')!;
+---
+
+<BaseLayout title={`${node.label} — DuckDB Vector Index`} tagline={node.blurb}>
+  <DetailPage node={node}>
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">At a glance</h2>
+    <p class="text-sm text-gray-300 leading-relaxed mb-6">
+      HNSW (Hierarchical Navigable Small World) is a graph-based ANN index. Each inserted vector
+      joins multiple layers; upper layers carry long-range edges, lower layers dense local ones.
+      A greedy descent from the top entry point reaches the query's neighborhood in logarithmic
+      steps. It remains the state-of-the-art recall/latency trade-off for in-memory workloads
+      up to a few hundred million vectors.
+    </p>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Parameters</h2>
+    <div class="overflow-x-auto mb-8">
+      <table class="w-full text-sm border border-ink-600">
+        <thead class="bg-ink-800 text-gray-400 font-mono text-xs uppercase tracking-wider">
+          <tr><th class="text-left px-4 py-2">Option</th><th class="text-left px-4 py-2">Default</th><th class="text-left px-4 py-2">Notes</th></tr>
+        </thead>
+        <tbody class="text-gray-300">
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">m</td><td class="px-4 py-2 font-mono">16</td><td class="px-4 py-2">Out-degree cap on upper layers; M0 = 2·m on layer 0.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">ef_construction</td><td class="px-4 py-2 font-mono">128</td><td class="px-4 py-2">Candidate pool size during build. Larger = better graph quality at build-time cost.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">ef_search</td><td class="px-4 py-2 font-mono">64</td><td class="px-4 py-2">Beam width at query time. Tune up for recall, down for latency.</td></tr>
+          <tr class="border-t border-ink-700"><td class="px-4 py-2 font-mono">quantizer</td><td class="px-4 py-2 font-mono">'rabitq'</td><td class="px-4 py-2">Any of flat / rabitq / pq / scann.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="text-xl font-semibold text-gray-100 mb-4">Example</h2>
+<pre class="bg-ink-800 border border-ink-700 p-4 font-mono text-xs overflow-x-auto"><code>CREATE INDEX docs_idx ON docs USING HNSW (embedding)
+    WITH (metric='cosine', quantizer='rabitq', bits=3,
+          m=16, ef_construction=128, ef_search=64);</code></pre>
+  </DetailPage>
+</BaseLayout>
