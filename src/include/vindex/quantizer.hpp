@@ -29,6 +29,7 @@ enum class QuantizerKind : uint8_t {
 	FLAT = 0,
 	PQ = 1,
 	RABITQ = 2,
+	SCANN = 3,
 };
 
 class Quantizer {

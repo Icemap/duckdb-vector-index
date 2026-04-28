@@ -6,6 +6,7 @@
 
 #include "vindex/pq_quantizer.hpp"
 #include "vindex/quantizer.hpp"
+#include "vindex/scann_quantizer.hpp"
 
 #include "../rabitq/rabitq_quantizer.hpp"
 
@@ -247,7 +248,60 @@ unique_ptr<Quantizer> CreateQuantizer(const case_insensitive_map_t<Value> &optio
 		}
 		return make_uniq<pq::PqQuantizer>(metric, dim, static_cast<uint8_t>(m), bits);
 	}
-	throw BinderException("vindex: unknown quantizer '%s' (expected 'flat', 'rabitq', or 'pq')", name);
+	if (name == "scann") {
+		// ScaNN = anisotropic PQ (Guo et al., ICML 2020). Same layout as PQ
+		// (bits ∈ {4,8}, m | dim) plus an `eta` knob for h_parallel /
+		// h_perpendicular. Defaults match the paper: bits=8, m=dim/4, eta=4.
+		if (metric == MetricKind::COSINE) {
+			throw BinderException("vindex: scann quantizer does not support cosine metric (use l2sq or ip on "
+			                      "pre-normalised vectors)");
+		}
+		uint8_t bits = 8;
+		auto bit_it = options.find("bits");
+		if (bit_it != options.end()) {
+			if (bit_it->second.type() != LogicalType::INTEGER) {
+				throw BinderException("vindex: scann 'bits' option must be an integer");
+			}
+			const int32_t b = bit_it->second.GetValue<int32_t>();
+			if (b != 4 && b != 8) {
+				throw BinderException("vindex: scann bits=%d is not supported (expected 4 or 8)", b);
+			}
+			bits = static_cast<uint8_t>(b);
+		}
+
+		idx_t m = dim >= 4 ? dim / 4 : 1;
+		auto m_it = options.find("m");
+		if (m_it != options.end()) {
+			if (m_it->second.type() != LogicalType::INTEGER) {
+				throw BinderException("vindex: scann 'm' option must be an integer");
+			}
+			const int32_t mm = m_it->second.GetValue<int32_t>();
+			if (mm <= 0 || mm > 255) {
+				throw BinderException("vindex: scann m=%d out of range (1..255)", mm);
+			}
+			m = static_cast<idx_t>(mm);
+		}
+		if (dim % m != 0) {
+			throw BinderException("vindex: scann requires dim (%llu) to be divisible by m (%llu)",
+			                      (unsigned long long)dim, (unsigned long long)m);
+		}
+
+		float eta = 4.0f;
+		auto eta_it = options.find("eta");
+		if (eta_it != options.end()) {
+			Value cast_eta;
+			string cast_err;
+			if (!eta_it->second.DefaultTryCastAs(LogicalType::DOUBLE, cast_eta, &cast_err)) {
+				throw BinderException("vindex: scann 'eta' option must be a number (%s)", cast_err);
+			}
+			eta = static_cast<float>(cast_eta.GetValue<double>());
+			if (!(eta > 0.0f)) {
+				throw BinderException("vindex: scann eta must be > 0 (got %f)", double(eta));
+			}
+		}
+		return make_uniq<scann::ScannQuantizer>(metric, dim, static_cast<uint8_t>(m), bits, eta);
+	}
+	throw BinderException("vindex: unknown quantizer '%s' (expected 'flat', 'rabitq', 'pq', or 'scann')", name);
 }
 
 } // namespace vindex

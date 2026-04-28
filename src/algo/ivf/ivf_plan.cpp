@@ -57,6 +57,9 @@ PhysicalOperator &IvfIndex::CreatePlan(PlanIndexInput &input) {
 			if (v.type() != LogicalType::INTEGER && v.type() != LogicalType::BIGINT) {
 				throw BinderException("IVF index 'm' must be an integer");
 			}
+		} else if (StringUtil::CIEquals(k, "eta")) {
+			// ScaNN: anisotropic loss ratio h_parallel / h_perpendicular.
+			// Full type validation happens in the ScaNN quantizer factory.
 		} else if (StringUtil::CIEquals(k, "rerank")) {
 			if (v.type() != LogicalType::INTEGER) {
 				throw BinderException("IVF index 'rerank' must be an integer");

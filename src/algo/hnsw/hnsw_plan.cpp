@@ -85,6 +85,9 @@ PhysicalOperator &HnswIndex::CreatePlan(PlanIndexInput &input) {
 			if (v.GetValue<int32_t>() < 2) {
 				throw BinderException("HNSW index 'M0' must be at least 2");
 			}
+		} else if (StringUtil::CIEquals(k, "eta")) {
+			// ScaNN: anisotropic loss ratio h_parallel / h_perpendicular.
+			// Full type validation happens in the ScaNN quantizer factory.
 		} else if (StringUtil::CIEquals(k, "rerank")) {
 			if (v.type() != LogicalType::INTEGER) {
 				throw BinderException("HNSW index 'rerank' must be an integer");

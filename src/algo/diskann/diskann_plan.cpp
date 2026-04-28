@@ -58,6 +58,9 @@ PhysicalOperator &DiskAnnIndex::CreatePlan(PlanIndexInput &input) {
 			if (v.type() != LogicalType::INTEGER && v.type() != LogicalType::BIGINT) {
 				throw BinderException("DiskANN index 'm' must be an integer");
 			}
+		} else if (StringUtil::CIEquals(k, "eta")) {
+			// ScaNN: anisotropic loss ratio h_parallel / h_perpendicular.
+			// Full type validation happens in the ScaNN quantizer factory.
 		} else if (StringUtil::CIEquals(k, "rerank")) {
 			if (v.type() != LogicalType::INTEGER) {
 				throw BinderException("DiskANN index 'rerank' must be an integer");

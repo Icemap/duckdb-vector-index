@@ -7,10 +7,10 @@ HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 
 > **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), DiskANN (Vamana graph with
 > codes stored out-of-band so the graph can be evicted past RAM), and the
-> quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}) and PQ (classical product
-> quantization) are all supported, with an optimizer-level rerank pass,
-> persistence across restarts, SQL + unit tests green, and a recall harness
-> wired up (`make bench`). ScaNN / SPANN are next.
+> quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}), PQ (classical product
+> quantization), and ScaNN (anisotropic PQ) are all supported, with an
+> optimizer-level rerank pass, persistence across restarts, SQL + unit
+> tests green, and a recall harness wired up (`make bench`). SPANN is next.
 
 ## Installing
 
@@ -184,6 +184,7 @@ RaBitQ codes.
 | `flat` | supported | — | no compression, float32 |
 | `rabitq` | supported | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
 | `pq` | supported | 8 | classical product quantization; `m` sub-vector count defaults to `dim/4`, `bits` ∈ {4, 8} |
+| `scann` | supported | 8 | ScaNN anisotropic PQ (Guo et al., ICML 2020); PQ layout plus `eta` (h_parallel / h_perpendicular, default 4) biasing the Lloyd loss toward direction-preserving centroids; `l2sq` / `ip` only |
 
 ### Quantizer bits vs recall
 
