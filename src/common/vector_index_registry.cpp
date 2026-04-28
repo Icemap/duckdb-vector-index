@@ -43,12 +43,14 @@ void RegisterScanOptimizer(DatabaseInstance &db);
 void RegisterTopKOptimizer(DatabaseInstance &db);
 void RegisterJoinOptimizer(DatabaseInstance &db);
 void RegisterMacros(ExtensionLoader &loader);
+void RegisterCompactPragma(ExtensionLoader &loader);
 
 void RegisterBuiltInAlgorithms(ExtensionLoader &loader) {
 	// 1) Algorithm-specific index types + pragmas.
 	hnsw::Register(loader);
 	ivf::Register(loader);
 	diskann::Register(loader);
+	RegisterCompactPragma(loader);
 
 	// 2) Shared optimizers — registered once, dispatch via VectorIndexRegistry.
 	auto &db = loader.GetDatabaseInstance();

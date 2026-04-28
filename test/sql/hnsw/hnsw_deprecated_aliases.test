@@ -1,0 +1,53 @@
+# name: test/sql/hnsw/hnsw_deprecated_aliases.test
+# group: [hnsw]
+#
+# Pin down that the legacy `hnsw_*` pragma / setting names still work.
+# AGENTS.md §4.2 + §9 require at least one release of overlap when renaming
+# from `hnsw_*` to `vindex_*`; dropping this overlap is a breaking change
+# and should be a deliberate removal, not an accident.
+
+require vindex
+
+load {TEST_DIR}/hnsw_aliases.db
+
+# Legacy experimental-persistence name.
+statement ok
+SET hnsw_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t (vec FLOAT[4]);
+
+statement ok
+INSERT INTO t VALUES ([0.1, 0.2, 0.3, 0.4]), ([0.2, 0.3, 0.4, 0.5]), ([0.9, 0.9, 0.9, 0.9]);
+
+statement ok
+CREATE INDEX my_idx ON t USING HNSW (vec);
+
+# Legacy ef_search setting.
+statement ok
+SET hnsw_ef_search = 32;
+
+query I
+SELECT array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) < 0.001
+FROM t ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 1;
+----
+true
+
+# Legacy info pragma.
+query I
+SELECT count(*) FROM pragma_hnsw_index_info();
+----
+1
+
+# Legacy compact pragma.
+statement ok
+PRAGMA hnsw_compact_index('my_idx');
+
+# New names continue to work in the same session.
+query I
+SELECT count(*) FROM pragma_vindex_hnsw_index_info();
+----
+1
+
+statement ok
+PRAGMA vindex_compact_index('my_idx');

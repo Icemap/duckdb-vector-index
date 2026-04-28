@@ -162,8 +162,8 @@ public:
 
 		auto new_filter = make_uniq<LogicalFilter>();
 		auto &column_ids = get.GetColumnIds();
-		for (const auto &entry : get.table_filters.filters) {
-			idx_t column_id = entry.first;
+		for (auto &entry : get.table_filters) {
+			idx_t column_id = entry.GetIndex();
 			auto &type = get.returned_types[column_id];
 			bool found = false;
 			for (idx_t i = 0; i < column_ids.size(); i++) {
@@ -176,8 +176,9 @@ public:
 			if (!found) {
 				throw InternalException("Could not find column id for filter");
 			}
-			auto column = make_uniq<BoundColumnRefExpression>(type, ColumnBinding(get.table_index, column_id));
-			new_filter->expressions.push_back(entry.second->ToExpression(*column));
+			auto column =
+			    make_uniq<BoundColumnRefExpression>(type, ColumnBinding(get.table_index, ProjectionIndex(column_id)));
+			new_filter->expressions.push_back(entry.Filter().ToExpression(*column));
 		}
 		new_filter->children.push_back(std::move(get_ptr));
 		new_filter->ResolveOperatorTypes();

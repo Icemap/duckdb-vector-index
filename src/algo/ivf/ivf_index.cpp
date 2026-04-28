@@ -12,6 +12,7 @@
 #include "duckdb/common/types/validity_mask.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
+#include "duckdb/common/vector/array_vector.hpp"
 #include "duckdb/common/vector_size.hpp"
 #include "duckdb/execution/index/index_type.hpp"
 #include "duckdb/execution/index/index_type_set.hpp"
@@ -378,7 +379,7 @@ unique_ptr<IndexScanState> IvfIndex::InitializeScan(float *query_vector, idx_t l
 idx_t IvfIndex::Scan(IndexScanState &state, Vector &result, idx_t result_offset) {
 	auto &scan_state = state.Cast<IvfIndexScanState>();
 	idx_t count = 0;
-	auto row_ids = FlatVector::GetData<row_t>(result) + result_offset;
+	auto row_ids = FlatVector::GetDataMutable<row_t>(result) + result_offset;
 	while (count < STANDARD_VECTOR_SIZE && scan_state.current_row < scan_state.total_rows) {
 		row_ids[count++] = scan_state.row_ids[scan_state.current_row++];
 	}
@@ -426,7 +427,7 @@ idx_t IvfIndex::ExecuteMultiScan(IndexScanState &state_p, float *query_vector, i
 
 const Vector &IvfIndex::GetMultiScanResult(IndexScanState &state) {
 	auto &scan_state = state.Cast<IvfMultiScanState>();
-	FlatVector::SetData(scan_state.vec, (data_ptr_t)scan_state.row_ids.data());
+	FlatVector::SetData(scan_state.vec, (data_ptr_t)scan_state.row_ids.data(), count_t(scan_state.row_ids.size()));
 	return scan_state.vec;
 }
 
@@ -439,7 +440,7 @@ void IvfIndex::ResetMultiScan(IndexScanState &state) {
 // Construction + mutation
 //------------------------------------------------------------------------------
 
-void IvfIndex::CommitDrop(IndexLock &index_lock) {
+void IvfIndex::ResetStorage(IndexLock &index_lock) {
 	auto lock = rwlock.GetExclusiveLock();
 	core_.reset();
 	row_to_centroid_.clear();

@@ -54,6 +54,12 @@ public:
 	// over the index-level default.
 	virtual idx_t GetRerankMultiple(ClientContext &context) const = 0;
 
+	// Reclaims tombstoned entries. Called from `PRAGMA vindex_compact_index`.
+	// Each algorithm decides what "compact" means (IVF rewrites posting lists
+	// in place, HNSW/DiskANN currently drop the tombstone set and mark the
+	// index dirty — full graph rebuild still requires CREATE INDEX).
+	virtual void Compact() = 0;
+
 	// --- expression matching (used by every optimizer) ----------------------
 	// Returns true if `expr` is a distance function call whose arguments
 	// include this index's column and a constant vector of the right shape.

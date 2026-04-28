@@ -65,7 +65,7 @@ public:
 	// --- HNSW-specific ------------------------------------------------------
 	void Construct(DataChunk &input, Vector &row_ids, idx_t thread_idx);
 	void PersistToDisk();
-	void Compact();
+	void Compact() override;
 
 	// One-shot training pass over up to `sample_cap` input vectors. Called by
 	// PhysicalCreateHnswIndex::Finalize before the parallel Construct phase.
@@ -79,7 +79,7 @@ public:
 
 	// --- DuckDB BoundIndex hooks -------------------------------------------
 	ErrorData Append(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
-	void CommitDrop(IndexLock &index_lock) override;
+	void ResetStorage(IndexLock &index_lock) override;
 	void Delete(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
 	ErrorData Insert(IndexLock &lock, DataChunk &data, Vector &row_ids) override;
 

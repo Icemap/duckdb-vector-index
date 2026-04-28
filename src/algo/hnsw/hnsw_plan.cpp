@@ -22,7 +22,8 @@ PhysicalOperator &HnswIndex::CreatePlan(PlanIndexInput &input) {
 	auto &planner = input.planner;
 
 	// Persistence gate. Either the new-world setting or the legacy
-	// `hnsw_enable_experimental_persistence` alias enables it (AGENTS.md §9).
+	// `hnsw_enable_experimental_persistence` alias (kept for one release
+	// for vss migration) enables it.
 	// TryGetCurrentSetting returns true for any registered option (even at its
 	// default), so we must check both values rather than short-circuiting.
 	Value vindex_val, hnsw_val;

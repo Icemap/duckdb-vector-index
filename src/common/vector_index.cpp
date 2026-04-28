@@ -45,7 +45,7 @@ bool VectorIndex::TryMatchDistanceFunction(const unique_ptr<Expression> &expr,
 	return function_matcher_->Match(*expr, bindings);
 }
 
-static void RewriteInternal(Expression &expr, idx_t table_idx, const vector<column_t> &index_columns,
+static void RewriteInternal(Expression &expr, TableIndex table_idx, const vector<column_t> &index_columns,
                             const vector<ColumnIndex> &table_columns, bool &success, bool &found) {
 	if (expr.type == ExpressionType::BOUND_COLUMN_REF) {
 		found = true;
@@ -54,7 +54,7 @@ static void RewriteInternal(Expression &expr, idx_t table_idx, const vector<colu
 		const auto target = index_columns[ref.binding.column_index];
 		for (idx_t i = 0; i < table_columns.size(); i++) {
 			if (table_columns[i].GetPrimaryIndex() == target) {
-				ref.binding.column_index = i;
+				ref.binding.column_index = ProjectionIndex(i);
 				return;
 			}
 		}

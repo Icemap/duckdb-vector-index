@@ -33,7 +33,7 @@ namespace vindex {
 //      — IndexBlockStore is the substrate they share with HNSW. The usearch
 //      blob would have to be torn apart anyway.
 //
-// Correctness/performance contract (AGENTS.md §6): HnswCore should match usearch
+// Correctness/performance contract: HnswCore should match usearch
 // within a factor of 2x QPS at identical parameters; #20c (microbench) gates
 // that. Any regression beyond that is a user-visible problem for HNSW scans and
 // must be attributed to a DuckDB-imposed cost (e.g. block pinning, metric

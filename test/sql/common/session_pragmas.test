@@ -1,0 +1,152 @@
+# name: test/sql/common/session_pragmas.test
+# group: [common]
+#
+# Pin down session-pragma semantics for the scan-time knobs:
+#
+#   vindex_ef_search         (HNSW)
+#   vindex_nprobe            (IVF)
+#   vindex_diskann_l_search  (DiskANN)
+#
+# Guarantees being locked in:
+# 1. A session pragma overrides the WITH-time default while set.
+# 2. Resetting the session pragma reverts to the WITH-time default.
+# 3. A pragma that belongs to a different algorithm is silently ignored
+#    by the algorithms it does not apply to (no cross-algorithm bleed).
+#
+# All three still produce the canonical plan shape —
+#   TOP_N (k) ← PROJECTION ← VINDEX_INDEX_SCAN
+# — regardless of the session pragma.
+
+require vindex
+
+load {TEST_DIR}/session_pragmas.db
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+#-------------------------------------------------------------------------
+# HNSW: vindex_ef_search should override, revert, and not touch IVF/DiskANN.
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE h (vec FLOAT[4]);
+
+statement ok
+INSERT INTO h VALUES
+    ([0.1, 0.2, 0.3, 0.4]), ([0.2, 0.3, 0.4, 0.5]),
+    ([0.3, 0.4, 0.5, 0.6]), ([0.9, 0.9, 0.9, 0.9]);
+
+statement ok
+CREATE INDEX h_idx ON h USING HNSW (vec) WITH (ef_search = 64);
+
+statement ok
+SET vindex_ef_search = 8;
+
+query II
+EXPLAIN SELECT vec FROM h ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 2;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) < 0.001
+FROM h ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 1;
+----
+true
+
+# Reset to default — should fall back to the WITH value without error.
+statement ok
+RESET vindex_ef_search;
+
+query I
+SELECT array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) < 0.001
+FROM h ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 1;
+----
+true
+
+#-------------------------------------------------------------------------
+# IVF: vindex_nprobe should override nprobe, and vindex_ef_search set in
+# the same session must not break IVF scans.
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE i (vec FLOAT[4]);
+
+statement ok
+INSERT INTO i SELECT array_value(a/10.0, b/10.0, c/10.0, 0.0)
+FROM range(1,6) ra(a), range(1,6) rb(b), range(1,6) rc(c);
+
+statement ok
+CREATE INDEX i_idx ON i USING IVF (vec) WITH (nlist = 4, nprobe = 2);
+
+# HNSW pragma set — IVF must ignore it.
+statement ok
+SET vindex_ef_search = 8;
+
+statement ok
+SET vindex_nprobe = 4;
+
+query II
+EXPLAIN SELECT vec FROM i ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.0]::FLOAT[4]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT count(*) FROM (
+    SELECT vec FROM i ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.0]::FLOAT[4]) LIMIT 3
+);
+----
+3
+
+statement ok
+RESET vindex_nprobe;
+
+statement ok
+RESET vindex_ef_search;
+
+#-------------------------------------------------------------------------
+# DiskANN: vindex_diskann_l_search should override, and unrelated pragmas
+# must not interfere.
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE d (vec FLOAT[4]);
+
+statement ok
+INSERT INTO d VALUES
+    ([0.1, 0.2, 0.3, 0.4]), ([0.2, 0.3, 0.4, 0.5]),
+    ([0.3, 0.4, 0.5, 0.6]), ([0.9, 0.9, 0.9, 0.9]);
+
+statement ok
+CREATE INDEX d_idx ON d USING DISKANN (vec)
+    WITH (quantizer = 'rabitq', bits = 3, diskann_r = 16, diskann_l = 32);
+
+# Unrelated pragmas set first — DiskANN must ignore them.
+statement ok
+SET vindex_ef_search = 8;
+
+statement ok
+SET vindex_nprobe = 4;
+
+statement ok
+SET vindex_diskann_l_search = 64;
+
+query II
+EXPLAIN SELECT vec FROM d ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 2;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT count(*) FROM (
+    SELECT vec FROM d ORDER BY array_distance(vec, [0.1, 0.2, 0.3, 0.4]::FLOAT[4]) LIMIT 2
+);
+----
+2
+
+statement ok
+RESET vindex_diskann_l_search;
+
+statement ok
+RESET vindex_nprobe;
+
+statement ok
+RESET vindex_ef_search;

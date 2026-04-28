@@ -50,7 +50,7 @@ public:
 	// --- DiskANN-specific ----------------------------------------------------
 	void Construct(DataChunk &input, Vector &row_ids, idx_t thread_idx);
 	void PersistToDisk();
-	void Compact();
+	void Compact() override;
 
 	void TrainQuantizer(ColumnDataCollection &collection, idx_t sample_cap = 65536);
 
@@ -58,7 +58,7 @@ public:
 
 	// --- DuckDB BoundIndex hooks --------------------------------------------
 	ErrorData Append(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
-	void CommitDrop(IndexLock &index_lock) override;
+	void ResetStorage(IndexLock &index_lock) override;
 	void Delete(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
 	ErrorData Insert(IndexLock &lock, DataChunk &data, Vector &row_ids) override;
 

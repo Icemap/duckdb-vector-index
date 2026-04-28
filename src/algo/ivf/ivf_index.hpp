@@ -50,7 +50,7 @@ public:
 	// --- IVF-specific --------------------------------------------------------
 	void Construct(DataChunk &input, Vector &row_ids, idx_t thread_idx);
 	void PersistToDisk();
-	void Compact();
+	void Compact() override;
 
 	// Two required training passes. Both must run exactly once before the
 	// first Construct(). Order is significant: the quantizer must be trained
@@ -62,7 +62,7 @@ public:
 
 	// --- DuckDB BoundIndex hooks --------------------------------------------
 	ErrorData Append(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
-	void CommitDrop(IndexLock &index_lock) override;
+	void ResetStorage(IndexLock &index_lock) override;
 	void Delete(IndexLock &lock, DataChunk &entries, Vector &row_identifiers) override;
 	ErrorData Insert(IndexLock &lock, DataChunk &data, Vector &row_ids) override;
 

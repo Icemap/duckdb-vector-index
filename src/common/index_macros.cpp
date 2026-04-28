@@ -12,8 +12,8 @@ namespace vindex {
 // SQL (they just branch on a `metric` argument), so they live under
 // src/common/ and are registered once by the extension loader.
 //
-// Registered under the `vindex_*` names per AGENTS.md §4; the legacy
-// `vss_*` names are kept as aliases for one minor release (see AGENTS.md §9).
+// Registered under the `vindex_*` names; the legacy `vss_*` names are
+// kept as aliases for one minor release to smooth vss migration.
 
 static constexpr auto VSS_JOIN_MACRO = R"(
 SELECT
@@ -116,7 +116,7 @@ void RegisterMacros(ExtensionLoader &loader) {
 	                   {{"metric", Value("l2sq")}});
 
 	// Legacy aliases — same macro body, vss_* names. Kept for one minor
-	// release per AGENTS.md §9 so we don't break existing users of vss.
+	// release so we don't break existing users of vss.
 	RegisterTableMacro(loader, "vss_join", VSS_JOIN_MACRO,
 	                   {"left_table", "right_table", "left_col", "right_col", "k"}, {{"metric", Value("l2sq")}});
 	RegisterTableMacro(loader, "vss_match", VSS_MATCH_MACRO, {"right_table", "left_col", "right_col", "k"},

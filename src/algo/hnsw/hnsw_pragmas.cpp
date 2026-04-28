@@ -138,62 +138,18 @@ static void HnswIndexInfoExecute(ClientContext &context, TableFunctionInput &dat
 }
 
 //-------------------------------------------------------------------------
-// Compact PRAGMA
-//-------------------------------------------------------------------------
-
-static void CompactIndexPragma(ClientContext &context, const FunctionParameters &parameters) {
-	if (parameters.values.size() != 1) {
-		throw BinderException("Expected one argument for hnsw_compact_index");
-	}
-	auto &param = parameters.values[0];
-	if (param.type() != LogicalType::VARCHAR) {
-		throw BinderException("Expected a string argument for hnsw_compact_index");
-	}
-	auto index_name = param.GetValue<string>();
-
-	auto qname = QualifiedName::Parse(index_name);
-	Binder::BindSchemaOrCatalog(context, qname.catalog, qname.schema);
-	auto &index_entry = Catalog::GetEntry(context, CatalogType::INDEX_ENTRY, qname.catalog, qname.schema, qname.name)
-	                        .Cast<IndexCatalogEntry>();
-	auto &table_entry = Catalog::GetEntry(context, CatalogType::TABLE_ENTRY, qname.catalog, index_entry.GetSchemaName(),
-	                                      index_entry.GetTableName())
-	                        .Cast<TableCatalogEntry>();
-
-	auto &storage = table_entry.GetStorage();
-	bool found_index = false;
-	auto &table_info = *storage.GetDataTableInfo();
-	table_info.BindIndexes(context, HnswIndex::TYPE_NAME);
-	for (auto &index : table_info.GetIndexes().Indexes()) {
-		if (!index.IsBound() || HnswIndex::TYPE_NAME != index.GetIndexType()) {
-			continue;
-		}
-		auto &cast_index = index.Cast<HnswIndex>();
-		if (cast_index.name == index_entry.name) {
-			cast_index.Compact();
-			found_index = true;
-			break;
-		}
-	}
-
-	if (!found_index) {
-		throw BinderException("Index %s not found", index_name);
-	}
-}
-
-//-------------------------------------------------------------------------
-// Register — both `vindex_*` (preferred) and `hnsw_*` (deprecated alias).
+// Register — info pragma (+ deprecated `pragma_hnsw_index_info` alias).
+// The generic `vindex_compact_index('<idx>')` / legacy `hnsw_compact_index`
+// lives in src/common/compact_pragma.cpp and dispatches through
+// VectorIndex::Compact(), so HNSW, IVF, and DiskANN all share one entry
+// point.
 //-------------------------------------------------------------------------
 void RegisterPragmas(ExtensionLoader &loader) {
-	// Preferred names.
-	loader.RegisterFunction(
-	    PragmaFunction::PragmaCall("vindex_compact_index", CompactIndexPragma, {LogicalType::VARCHAR}));
 	TableFunction info_function("pragma_vindex_hnsw_index_info", {}, HnswIndexInfoExecute, HnswIndexInfoBind,
 	                            HnswIndexInfoInitGlobal);
 	loader.RegisterFunction(info_function);
 
-	// Legacy aliases — one minor release of overlap per AGENTS.md §9.
-	loader.RegisterFunction(
-	    PragmaFunction::PragmaCall("hnsw_compact_index", CompactIndexPragma, {LogicalType::VARCHAR}));
+	// Legacy alias — one minor release of overlap for migration from vss.
 	TableFunction legacy_info_function("pragma_hnsw_index_info", {}, HnswIndexInfoExecute, HnswIndexInfoBind,
 	                                   HnswIndexInfoInitGlobal);
 	loader.RegisterFunction(legacy_info_function);

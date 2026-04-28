@@ -10,4 +10,5 @@ set(EXTENSION_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/optimize_topk.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/optimize_join.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index_macros.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/compact_pragma.cpp
     PARENT_SCOPE)

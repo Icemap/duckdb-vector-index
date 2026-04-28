@@ -1,0 +1,98 @@
+# name: test/sql/common/drop_column_guard.test
+# group: [common]
+#
+# Ensure that ALTER TABLE ... DROP COLUMN is rejected when a column is
+# referenced by a vector index. The rerank pass reads the original
+# FLOAT[d] column to compute exact distances — if the column were
+# silently dropped, any rerank-using query plan would break at execute
+# time rather than at DDL time.
+#
+# This is inherited from DuckDB's core dependency manager: `column_ids`
+# on the index entry pins the column. We exercise all three algorithms
+# so a future refactor that sidesteps the dependency (e.g. by only using
+# expression bindings) is caught immediately. After DROP INDEX the
+# column must become droppable again.
+
+require vindex
+
+load {TEST_DIR}/drop_column_guard.db
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+#-------------------------------------------------------------------------
+# HNSW
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE hnsw_t (vec FLOAT[4], tag VARCHAR);
+
+statement ok
+INSERT INTO hnsw_t VALUES ([0.1, 0.2, 0.3, 0.4], 'a'), ([0.5, 0.6, 0.7, 0.8], 'b');
+
+statement ok
+CREATE INDEX hnsw_idx ON hnsw_t USING HNSW (vec)
+    WITH (quantizer = 'rabitq', bits = 3, rerank = 10);
+
+statement error
+ALTER TABLE hnsw_t DROP COLUMN vec;
+----
+<REGEX>:.*(index depends|entries that depend).*
+
+statement ok
+DROP INDEX hnsw_idx;
+
+# After the index is gone, the column is droppable again.
+statement ok
+ALTER TABLE hnsw_t DROP COLUMN vec;
+
+#-------------------------------------------------------------------------
+# IVF
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE ivf_t (vec FLOAT[4], tag VARCHAR);
+
+statement ok
+INSERT INTO ivf_t SELECT array_value(a/10.0, b/10.0, c/10.0, 0.0), 'x'
+FROM range(1,6) ra(a), range(1,6) rb(b), range(1,6) rc(c);
+
+statement ok
+CREATE INDEX ivf_idx ON ivf_t USING IVF (vec)
+    WITH (nlist = 4, nprobe = 2, quantizer = 'rabitq', bits = 3, rerank = 10);
+
+statement error
+ALTER TABLE ivf_t DROP COLUMN vec;
+----
+<REGEX>:.*(index depends|entries that depend).*
+
+statement ok
+DROP INDEX ivf_idx;
+
+statement ok
+ALTER TABLE ivf_t DROP COLUMN vec;
+
+#-------------------------------------------------------------------------
+# DiskANN
+#-------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE disk_t (vec FLOAT[4], tag VARCHAR);
+
+statement ok
+INSERT INTO disk_t VALUES ([0.1, 0.2, 0.3, 0.4], 'a'), ([0.5, 0.6, 0.7, 0.8], 'b');
+
+statement ok
+CREATE INDEX disk_idx ON disk_t USING DISKANN (vec)
+    WITH (quantizer = 'rabitq', bits = 3, diskann_r = 16, diskann_l = 32);
+
+statement error
+ALTER TABLE disk_t DROP COLUMN vec;
+----
+<REGEX>:.*(index depends|entries that depend).*
+
+statement ok
+DROP INDEX disk_idx;
+
+statement ok
+ALTER TABLE disk_t DROP COLUMN vec;
