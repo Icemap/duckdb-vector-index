@@ -2,16 +2,12 @@
 
 A DuckDB extension for **vector similarity search at scale**. Superset of the
 official [`vss`](https://github.com/duckdb/duckdb-vss) extension: supports
-HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
-**RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
-
-> **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), DiskANN (Vamana graph with
-> codes stored out-of-band so the graph can be evicted past RAM), SPANN
-> (IVF + closure-replica writes so boundary points survive a single-cell
-> probe), and the quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}), PQ (classical
-> product quantization), and ScaNN (anisotropic PQ) are all supported,
-> with an optimizer-level rerank pass, persistence across restarts, SQL
-> + unit tests green, and a recall harness wired up (`make bench`).
+HNSW, IVF (IVF-Flat / IVF-RaBitQ / IVF-PQ / IVF-ScaNN), DiskANN (Vamana
+graph with codes held out-of-band so the graph can evict past RAM), and
+SPANN (IVF with closure-replica writes so boundary points survive a
+single-cell probe), with pluggable quantization — RaBitQ (bits ∈
+{1,2,3,4,5,7,8}, default **3-bit**), PQ, and ScaNN anisotropic PQ — plus
+an optimizer-level rerank pass against the authoritative `FLOAT[d]` column.
 
 ## Installing
 
@@ -68,7 +64,7 @@ manual run (without cutting a tag) is available via the **Run workflow**
 button in the Actions tab — it will build and test the matrix but skip
 the release step.
 
-## Quickstart (target UX)
+## Quickstart
 
 ```sql
 -- After loading the extension as shown above:
@@ -81,7 +77,7 @@ CREATE INDEX docs_idx ON docs USING HNSW (embedding)
     WITH (metric='cosine', quantizer='rabitq', bits=3);
 
 -- Or IVF-RaBitQ — cheaper build, tunable recall/speed via nlist/nprobe.
--- This is the M2 headline config: Recall@10 ≥ 0.97 on SIFT1M.
+-- Recall@10 ≥ 0.97 on SIFT1M at nlist=1024/nprobe=32.
 CREATE INDEX docs_idx ON docs USING IVF (embedding)
     WITH (metric='cosine', quantizer='rabitq', bits=3, rerank=10,
           nlist=1024, nprobe=32);
@@ -113,7 +109,7 @@ LIMIT 10;
 | `USING` | Status | Notes |
 | --- | --- | --- |
 | `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
-| `IVF` | supported | IVF-Flat / IVF-RaBitQ / IVF-PQ; k-means++ centroids + per-list posting buffers |
+| `IVF` | supported | IVF-Flat / IVF-RaBitQ / IVF-PQ / IVF-ScaNN; k-means++ centroids + per-list posting buffers |
 | `DISKANN` | supported | Vamana graph with codes held out-of-band; graph blocks evict via the buffer pool so the index can exceed RAM |
 | `SPANN` | supported | IVF with closure replicas — each point is written into every centroid within `closure_factor × d_best`, so boundary points survive a single-cell probe |
 
@@ -239,7 +235,7 @@ from the index and re-rank them by **exact** `array_distance` against the
 authoritative `FLOAT[d]` column. The plan shape is uniform regardless of `N`:
 
 ```
-TOP_N (k) ← PROJECTION ← HNSW_INDEX_SCAN (emits k × N row_ids)
+TOP_N (k) ← PROJECTION ← VINDEX_INDEX_SCAN (emits k × N row_ids)
 ```
 
 This is enforced by `test/sql/hnsw/hnsw_rerank.test`. There is no
