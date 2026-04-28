@@ -7,7 +7,7 @@
 
 require vindex
 
-load __TEST_DIR__/temp_index_diskann_storage.db
+load {TEST_DIR}/temp_index_diskann_storage.db
 
 statement ok
 SET vindex_enable_experimental_persistence = true;
@@ -37,6 +37,16 @@ true
 statement ok
 CHECKPOINT;
 
+# Skipped on upstream DuckDB v1.5.2: IndexCatalogEntry::GetInfo() drops the
+# WITH options when rebuilding CreateInfo, so after `restart` the DiskANN
+# index reloads with default options (FLAT quantizer) and the binder rejects
+# it. Fixed upstream by:
+#   https://github.com/duckdb/duckdb/issues/22316
+#   https://github.com/duckdb/duckdb/pull/22317 (merged to main, not yet in
+#   a v1.5.x release)
+# Re-enable this section once a DuckDB patch release ships with the fix.
+mode skip
+
 restart
 
 query II
@@ -50,3 +60,5 @@ SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_dista
 true
 true
 true
+
+mode unskip
