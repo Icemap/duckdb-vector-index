@@ -15,17 +15,12 @@
 #include "duckdb/storage/table/data_table_info.hpp"
 #include "duckdb/storage/table/table_index_list.hpp"
 
-#include "algo/hnsw/hnsw_index.hpp"
-#include "algo/hnsw/hnsw_index_scan.hpp"
 #include "vindex/vector_index.hpp"
 #include "vindex/vector_index_registry.hpp"
+#include "vindex/vector_index_scan.hpp"
 
 namespace duckdb {
 namespace vindex {
-
-using hnsw::HnswIndex;
-using hnsw::HnswIndexScanBindData;
-using hnsw::HnswIndexScanFunction;
 
 // Rewrite AGG(MIN_BY(col1, distance(col2, q), k)) <- SEQ_SCAN(t1)
 //     => AGG(MIN_BY(col1, distance(col2, q), k)) <- INDEX_SCAN(t1, q, k × rerank)
@@ -87,7 +82,7 @@ public:
 		auto &duck_table = table.Cast<DuckTableEntry>();
 		auto &table_info = *table.GetStorage().GetDataTableInfo();
 
-		unique_ptr<HnswIndexScanBindData> bind_data;
+		unique_ptr<VectorIndexScanBindData> bind_data;
 		vector<reference<Expression>> bindings;
 
 		for (const auto &type_name : VectorIndexRegistry::Instance().TypeNames()) {
@@ -133,12 +128,13 @@ public:
 			if (k_limit <= 0 || k_limit >= STANDARD_VECTOR_SIZE) {
 				continue;
 			}
-			auto &hnsw_index = index.Cast<HnswIndex>();
 			// Over-fetch: the index returns candidates; the min_by aggregate
-			// above picks the exact top-k by real distance.
+			// above picks the exact top-k by real distance. The scan dispatches
+			// through the VectorIndex virtual surface.
 			const idx_t rerank = vi->GetRerankMultiple(context);
 			const idx_t cand_limit = idx_t(k_limit) * rerank;
-			bind_data = make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, cand_limit, std::move(query_vector));
+			bind_data =
+			    make_uniq<VectorIndexScanBindData>(duck_table, index, cand_limit, std::move(query_vector));
 			break;
 		}
 
@@ -146,7 +142,7 @@ public:
 			return false;
 		}
 
-		get.function = HnswIndexScanFunction::GetFunction();
+		get.function = VectorIndexScanFunction::GetFunction();
 		const auto cardinality = get.function.cardinality(context, bind_data.get());
 		get.has_estimated_cardinality = cardinality->has_estimated_cardinality;
 		get.estimated_cardinality = cardinality->estimated_cardinality;

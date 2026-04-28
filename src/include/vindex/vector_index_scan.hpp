@@ -11,12 +11,13 @@ namespace duckdb {
 class Index;
 
 namespace vindex {
-namespace hnsw {
 
 // Bind data carried from the optimizer rule into the replaced table scan.
 // Holds the materialised query vector + top-K limit for a single ANN query.
-struct HnswIndexScanBindData final : public TableScanBindData {
-	HnswIndexScanBindData(TableCatalogEntry &table, Index &index, idx_t limit, unsafe_unique_array<float> query)
+// Algorithm-agnostic: dispatches through the VectorIndex virtual surface
+// (InitializeScan/Scan), so HNSW / IVF / DiskANN all share this one path.
+struct VectorIndexScanBindData final : public TableScanBindData {
+	VectorIndexScanBindData(TableCatalogEntry &table, Index &index, idx_t limit, unsafe_unique_array<float> query)
 	    : TableScanBindData(table), index(index), limit(limit), query(std::move(query)) {
 	}
 
@@ -25,18 +26,16 @@ struct HnswIndexScanBindData final : public TableScanBindData {
 	unsafe_unique_array<float> query;
 
 	bool Equals(const FunctionData &other_p) const override {
-		auto &other = other_p.Cast<HnswIndexScanBindData>();
+		auto &other = other_p.Cast<VectorIndexScanBindData>();
 		return &other.table == &table;
 	}
 };
 
-struct HnswIndexScanFunction {
-	// Registered under the name `hnsw_index_scan` for compatibility with vss;
-	// the optimizer rewrites plans to use this function. A future generic
-	// name (e.g. `vindex_index_scan`) can be layered in as an alias.
+struct VectorIndexScanFunction {
+	// Registered under the name `vindex_index_scan`. The optimizer rewrites
+	// plans to use this function for every VectorIndex subclass.
 	static TableFunction GetFunction();
 };
 
-} // namespace hnsw
 } // namespace vindex
 } // namespace duckdb

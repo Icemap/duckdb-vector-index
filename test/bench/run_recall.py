@@ -35,22 +35,33 @@ DEFAULT_EXTENSION = REPO_ROOT / "build" / "release" / "extension" / "vindex" / "
 
 K = 10  # Recall@K target
 
-# (algo-key, WITH-clause) tuples. The harness issues the same ORDER BY + LIMIT
-# query for each; rerank pairings match README §"Quantizer bits vs recall".
+# (algo-key → (USING clause, WITH-clause)). The harness issues the same
+# ORDER BY + LIMIT query for each; rerank pairings match README
+# §"Quantizer bits vs recall".
 CONFIGS = {
-    "hnsw-flat":           "",
-    "hnsw-rabitq3":        "WITH (quantizer='rabitq', bits=3, rerank=10)",
-    "hnsw-rabitq1-rerank": "WITH (quantizer='rabitq', bits=1, rerank=50)",
+    "hnsw-flat":           ("HNSW", ""),
+    "hnsw-rabitq3":        ("HNSW", "WITH (quantizer='rabitq', bits=3, rerank=10)"),
+    "hnsw-rabitq1-rerank": ("HNSW", "WITH (quantizer='rabitq', bits=1, rerank=50)"),
+    "ivf-flat":            ("IVF",  "WITH (nlist=128, nprobe=16)"),
+    "ivf-rabitq3":         ("IVF",  "WITH (quantizer='rabitq', bits=3, rerank=10, nlist=128, nprobe=16)"),
 }
 
 # Recall@10 thresholds per (algo, dataset). Anything below → non-zero exit.
+# sift1m thresholds for IVF follow AGENTS.md §6.3 — ivf-rabitq3 is the M2
+# milestone gate (≥0.97 at nlist=1024/nprobe=32). The bench default config
+# keeps the more conservative nlist=128/nprobe=16 for fast CI runs; the
+# milestone-grade threshold is enforced under the `-sift1m` profile.
 THRESHOLDS = {
     ("hnsw-flat",           "siftsmall"): 0.98,
     ("hnsw-rabitq3",        "siftsmall"): 0.95,
     ("hnsw-rabitq1-rerank", "siftsmall"): 0.90,
+    ("ivf-flat",            "siftsmall"): 0.90,
+    ("ivf-rabitq3",         "siftsmall"): 0.90,
     ("hnsw-flat",           "sift1m"):    0.98,
     ("hnsw-rabitq3",        "sift1m"):    0.99,
     ("hnsw-rabitq1-rerank", "sift1m"):    0.90,
+    ("ivf-flat",            "sift1m"):    0.95,
+    ("ivf-rabitq3",         "sift1m"):    0.97,
 }
 
 
@@ -92,7 +103,7 @@ def _load_base_table(con: duckdb.DuckDBPyConnection, base: np.ndarray) -> None:
 def _run_queries(con: duckdb.DuckDBPyConnection, queries: np.ndarray) -> tuple[np.ndarray, float]:
     # Build one query-vector-keyed scan per query. sqllogictest uses literal
     # FLOAT[] casts; we do the same to exercise the optimizer's constant-vector
-    # path. (Subquery-sourced vectors don't trigger HNSW_INDEX_SCAN — see
+    # path. (Subquery-sourced vectors don't trigger VINDEX_INDEX_SCAN — see
     # test/sql/rabitq/rabitq_basic.test line 100.)
     q_count = queries.shape[0]
     out = np.full((q_count, K), -1, dtype=np.int32)
@@ -117,13 +128,13 @@ def _recall_at_k(retrieved: np.ndarray, gt: np.ndarray, k: int) -> float:
     return hits / total
 
 
-def _run_one(extension_path: Path, ds: datasets.Dataset, algo: str, with_clause: str) -> RunResult:
+def _run_one(extension_path: Path, ds: datasets.Dataset, algo: str, using: str, with_clause: str) -> RunResult:
     threshold = THRESHOLDS.get((algo, ds.name), 0.0)
     print(f"[bench] {algo} on {ds.name}: build…", file=sys.stderr)
     con = _connect(extension_path)
     _load_base_table(con, ds.base)
     t0 = time.perf_counter()
-    con.execute(f"CREATE INDEX idx ON base USING HNSW (vec) {with_clause}")
+    con.execute(f"CREATE INDEX idx ON base USING {using} (vec) {with_clause}")
     build_s = time.perf_counter() - t0
     print(f"[bench] {algo} on {ds.name}: build={build_s:.2f}s, query…", file=sys.stderr)
     retrieved, query_s = _run_queries(con, ds.query)
@@ -157,7 +168,8 @@ def main(argv: list[str]) -> int:
         if algo not in CONFIGS:
             print(f"error: unknown algo: {algo}", file=sys.stderr)
             return 2
-        results.append(_run_one(extension_path, ds, algo, CONFIGS[algo]))
+        using, with_clause = CONFIGS[algo]
+        results.append(_run_one(extension_path, ds, algo, using, with_clause))
 
     out_path = Path(args.output) if args.output else Path(__file__).parent / "results" / "latest.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)

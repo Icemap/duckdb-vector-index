@@ -5,9 +5,10 @@ official [`vss`](https://github.com/duckdb/duckdb-vss) extension: supports
 HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 **RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
 
-> **Status**: HNSW + RaBitQ (bits ∈ {1,2,3,4,5,7,8}) are supported, with an
-> optimizer-level rerank pass, persistence across restarts, SQL + unit tests
-> green, and a recall harness wired up (`make bench`). IVF is next.
+> **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), and RaBitQ
+> (bits ∈ {1,2,3,4,5,7,8}) are supported, with an optimizer-level rerank
+> pass, persistence across restarts, SQL + unit tests green, and a recall
+> harness wired up (`make bench`). DiskANN is next.
 
 ## Quickstart (target UX)
 
@@ -22,6 +23,12 @@ CREATE TABLE docs (id INT, embedding FLOAT[768]);
 CREATE INDEX docs_idx ON docs USING HNSW (embedding)
     WITH (metric='cosine', quantizer='rabitq', bits=3);
 
+-- Or IVF-RaBitQ — cheaper build, tunable recall/speed via nlist/nprobe.
+-- This is the M2 headline config: Recall@10 ≥ 0.97 on SIFT1M.
+CREATE INDEX docs_idx ON docs USING IVF (embedding)
+    WITH (metric='cosine', quantizer='rabitq', bits=3, rerank=10,
+          nlist=1024, nprobe=32);
+
 -- Query uses the standard DuckDB distance function; the index kicks in.
 SELECT id, embedding
 FROM docs
@@ -34,7 +41,7 @@ LIMIT 10;
 | `USING` | Status | Notes |
 | --- | --- | --- |
 | `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
-| `IVF` | planned (M2) | IVF-Flat / IVF-PQ / IVF-RaBitQ |
+| `IVF` | supported | IVF-Flat / IVF-RaBitQ; k-means++ centroids + per-list posting buffers |
 | `DISKANN` | planned (M3) | Vamana graph + PQ, indexes larger than RAM |
 | `SCANN` | planned (M4) | anisotropic quantization |
 | `SPANN` | planned (M4) | in-memory centroids + disk postings |
@@ -180,7 +187,6 @@ test/
   unit/                 Catch2 kernel tests
   bench/                recall regression harness (Python)
   python/               duckdb-python e2e smoke
-doc/                    design & plan documents
 ref/duckdb-vss/         read-only upstream reference
 ```
 

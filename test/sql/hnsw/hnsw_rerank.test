@@ -4,7 +4,7 @@
 # M1.6e — rerank planner end-to-end.
 #
 # Invariant (enforced by optimize_scan.cpp / optimize_topk.cpp):
-#   HNSW_INDEX_SCAN returns k × rerank_multiple candidate row_ids.
+#   VINDEX_INDEX_SCAN returns k × rerank_multiple candidate row_ids.
 #   The upstream TopN (ORDER BY ... LIMIT k) or min_by(col, dist, k)
 #   reranks by EXACT distance against the authoritative FLOAT[] column.
 #
@@ -28,7 +28,7 @@ CREATE INDEX idx_r1 ON t1 USING HNSW (vec) WITH (rerank = 1);
 query II
 EXPLAIN SELECT vec FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
 ----
-physical_plan	<REGEX>:(?s).*TOP_N.*HNSW_INDEX_SCAN.*
+physical_plan	<REGEX>:(?s).*TOP_N.*VINDEX_INDEX_SCAN.*
 
 statement ok
 DROP INDEX idx_r1;
@@ -37,19 +37,19 @@ DROP INDEX idx_r1;
 statement ok
 CREATE INDEX idx_r5 ON t1 USING HNSW (vec) WITH (rerank = 5);
 
-# TopN is preserved; HNSW_INDEX_SCAN is present — single uniform plan shape
+# TopN is preserved; VINDEX_INDEX_SCAN is present — single uniform plan shape
 # regardless of rerank multiple.
 query II
 EXPLAIN SELECT vec FROM t1 ORDER BY array_distance(vec, [5,5,5]::FLOAT[3]) LIMIT 3;
 ----
-physical_plan	<REGEX>:(?s).*TOP_N.*HNSW_INDEX_SCAN.*
+physical_plan	<REGEX>:(?s).*TOP_N.*VINDEX_INDEX_SCAN.*
 
 # min_by path is ALSO preserved (not rewritten into list(ORDER BY ...)) —
 # min_by itself is the exact-distance rerank step.
 query II
 EXPLAIN SELECT min_by(vec, array_distance(vec, [5,5,5]::FLOAT[3]), 3) FROM t1;
 ----
-physical_plan	<REGEX>:(?s).*min_by.*HNSW_INDEX_SCAN.*
+physical_plan	<REGEX>:(?s).*min_by.*VINDEX_INDEX_SCAN.*
 
 # --- correctness: rerank recovers exact top-k -------------------------------
 # With rerank=5, the index emits 15 candidates and TopN picks the 3 closest.

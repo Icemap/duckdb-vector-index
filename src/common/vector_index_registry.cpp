@@ -5,10 +5,12 @@
 #include "duckdb/storage/index.hpp"
 
 #include "vindex/vector_index.hpp"
+#include "vindex/vector_index_scan.hpp"
 
 // Forward declarations of per-algorithm registration entrypoints. Each
 // algorithm's module.hpp exposes a `Register(ExtensionLoader&)` symbol.
 #include "algo/hnsw/hnsw_module.hpp"
+#include "algo/ivf/ivf_module.hpp"
 
 namespace duckdb {
 namespace vindex {
@@ -42,9 +44,9 @@ void RegisterJoinOptimizer(DatabaseInstance &db);
 void RegisterMacros(ExtensionLoader &loader);
 
 void RegisterBuiltInAlgorithms(ExtensionLoader &loader) {
-	// 1) Algorithm-specific index types + table functions.
+	// 1) Algorithm-specific index types + pragmas.
 	hnsw::Register(loader);
-	// TODO(m2): ivf::Register(loader);
+	ivf::Register(loader);
 	// TODO(m3): diskann::Register(loader);
 
 	// 2) Shared optimizers — registered once, dispatch via VectorIndexRegistry.
@@ -54,7 +56,13 @@ void RegisterBuiltInAlgorithms(ExtensionLoader &loader) {
 	RegisterTopKOptimizer(db);
 	RegisterJoinOptimizer(db);
 
-	// 3) Shared SQL macros.
+	// 3) Shared table function — a single generic vindex_index_scan handles
+	//    every VectorIndex subclass via virtual dispatch. Registering it
+	//    here (rather than per-algorithm) is what keeps new algorithms from
+	//    having to duplicate the scan plumbing.
+	loader.RegisterFunction(VectorIndexScanFunction::GetFunction());
+
+	// 4) Shared SQL macros.
 	RegisterMacros(loader);
 }
 

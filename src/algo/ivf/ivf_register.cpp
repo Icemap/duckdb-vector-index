@@ -1,14 +1,13 @@
-#include "algo/hnsw/hnsw_module.hpp"
+#include "algo/ivf/ivf_module.hpp"
 
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
 namespace duckdb {
 namespace vindex {
-namespace hnsw {
+namespace ivf {
 
-// Defined in hnsw_index.cpp — registers the HNSW IndexType + extension
-// options (and adds the TYPE_NAME to VectorIndexRegistry).
+// Defined in ivf_index.cpp / ivf_pragmas.cpp.
 void RegisterIndex(DatabaseInstance &db);
 void RegisterPragmas(ExtensionLoader &loader);
 
@@ -22,6 +21,6 @@ void Register(ExtensionLoader &loader) {
 	// are algorithm-agnostic; registered once from src/common/.
 }
 
-} // namespace hnsw
+} // namespace ivf
 } // namespace vindex
 } // namespace duckdb

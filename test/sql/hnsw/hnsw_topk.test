@@ -18,12 +18,12 @@ CREATE INDEX my_idx ON t1 USING HNSW (vec);
 query II
 EXPLAIN SELECT min_by(vec, array_distance(vec, [1,2,3]::FLOAT[3]), 3) as x FROM t1;
 ----
-physical_plan	<REGEX>:.*HNSW_INDEX_SCAN.*
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
 
 query II
 EXPLAIN SELECT list_sum(flatten(min_by(vec, array_distance(vec, [5,5,5]::FLOAT[3]), 3))) BETWEEN 43 AND 50 FROM t1;
 ----
-physical_plan	<REGEX>:.*HNSW_INDEX_SCAN.*
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
 
 # Any 3-of-7 closest to [5,5,5] yields a list-sum in [43, 47] depending on
 # tie-break order. HNSW is approximate by design; we don't over-constrain it.

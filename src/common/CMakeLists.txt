@@ -4,6 +4,7 @@ set(EXTENSION_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/vector_index_registry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/metric.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index_block_store.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vector_index_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/optimize_expr.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/optimize_scan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/optimize_topk.cpp

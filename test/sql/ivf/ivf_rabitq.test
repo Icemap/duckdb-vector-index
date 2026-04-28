@@ -1,0 +1,36 @@
+# name: test/sql/ivf/ivf_rabitq.test
+# group: [ivf]
+#
+# IVF + RaBitQ 3-bit quantization. Matches the shape of
+# test/sql/rabitq/rabitq_basic.test but through the IVF code path, so that
+# the IVF posting-list scan + RaBitQ EstimateDistance interaction stays
+# regression-covered.
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+statement ok
+CREATE INDEX my_idx ON t1 USING IVF (vec)
+    WITH (quantizer='rabitq', bits=3, rerank=10, nlist=8, nprobe=8);
+
+# Plan shape: TOP_N pulls the approximate candidates from the index scan
+# and reranks by exact distance — same invariant HNSW enforces.
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true

@@ -15,27 +15,21 @@
 #include "duckdb/storage/table/data_table_info.hpp"
 #include "duckdb/storage/table/table_index_list.hpp"
 
-#include "algo/hnsw/hnsw_index.hpp"
-#include "algo/hnsw/hnsw_index_scan.hpp"
 #include "vindex/vector_index.hpp"
 #include "vindex/vector_index_registry.hpp"
+#include "vindex/vector_index_scan.hpp"
 
 namespace duckdb {
 namespace vindex {
 
-using hnsw::HnswIndex;
-using hnsw::HnswIndexScanBindData;
-using hnsw::HnswIndexScanFunction;
-
 // ---------------------------------------------------------------------------
 // TopN → index scan rewrite
 //
-// This is registry-driven: it iterates every registered vector-index
-// TYPE_NAME (HNSW today, IVF/DiskANN/… later) and asks that index whether
-// it can service the projection's distance expression. For M0 only HNSW is
-// registered, so the bind_data construction path is HNSW-specific; when new
-// algorithms come online, this site will fan out via VectorIndex::
-// CreateScanBindData.
+// Registry-driven: iterates every registered VectorIndex type name and asks
+// whether it can service the projection's distance expression. The bind data
+// and table function are the generic VectorIndexScan{BindData,Function}, so
+// adding a new algorithm only requires registering its TYPE_NAME and
+// subclassing VectorIndex. No changes here.
 // ---------------------------------------------------------------------------
 
 class VectorIndexScanOptimizer : public OptimizerExtension {
@@ -91,11 +85,10 @@ public:
 		auto &duck_table = table.Cast<DuckTableEntry>();
 		auto &table_info = *table.GetStorage().GetDataTableInfo();
 
-		unique_ptr<HnswIndexScanBindData> bind_data;
+		unique_ptr<VectorIndexScanBindData> bind_data;
 		vector<reference<Expression>> bindings;
 
-		// Iterate all registered vector-index algorithms. For M0 this is just
-		// HNSW; future algos will match here too.
+		// Iterate all registered vector-index algorithms.
 		for (const auto &type_name : VectorIndexRegistry::Instance().TypeNames()) {
 			table_info.BindIndexes(context, type_name.c_str());
 		}
@@ -136,15 +129,14 @@ public:
 				query_vector[i] = vector_elements[i].GetValue<float>();
 			}
 
-			// M0: only HNSW is registered, so downcast is safe. In M2 we'll
-			// route this through VectorIndex::CreateScanBindData.
-			auto &hnsw_index = index.Cast<HnswIndex>();
 			// Over-fetch by `rerank_multiple`. Index returns candidates; the
 			// surviving LogicalTopN above does the exact-distance final sort.
+			// The scan dispatches through the VectorIndex virtual surface, so
+			// we hand it the BoundIndex unchanged.
 			const idx_t rerank = vi->GetRerankMultiple(context);
 			const idx_t cand_limit = top_n.limit * rerank;
 			bind_data =
-			    make_uniq<HnswIndexScanBindData>(duck_table, hnsw_index, cand_limit, std::move(query_vector));
+			    make_uniq<VectorIndexScanBindData>(duck_table, index, cand_limit, std::move(query_vector));
 			break;
 		}
 
@@ -153,7 +145,7 @@ public:
 		}
 
 		const auto cardinality = get.function.cardinality(context, bind_data.get());
-		get.function = HnswIndexScanFunction::GetFunction();
+		get.function = VectorIndexScanFunction::GetFunction();
 		get.has_estimated_cardinality = cardinality->has_estimated_cardinality;
 		get.estimated_cardinality = cardinality->estimated_cardinality;
 		get.bind_data = std::move(bind_data);
@@ -209,7 +201,7 @@ public:
 			if (plan->children[0]->type == LogicalOperatorType::LOGICAL_PROJECTION) {
 				auto &child = plan->children[0];
 				if (child->children[0]->type == LogicalOperatorType::LOGICAL_GET &&
-				    child->children[0]->Cast<LogicalGet>().function.name == "hnsw_index_scan") {
+				    child->children[0]->Cast<LogicalGet>().function.name == "vindex_index_scan") {
 					auto &parent_projection = plan->Cast<LogicalProjection>();
 					auto &child_projection = child->Cast<LogicalProjection>();
 
