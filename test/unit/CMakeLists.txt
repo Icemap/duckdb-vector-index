@@ -19,12 +19,16 @@ add_executable(vindex_unit
     test_hnsw_core.cpp
     test_kmeans.cpp
     test_ivf_core.cpp
+    test_pq_quantizer.cpp
+    test_diskann_core.cpp
     ${PROJECT_SOURCE_DIR}/src/common/metric.cpp
     ${PROJECT_SOURCE_DIR}/src/common/index_block_store.cpp
     ${PROJECT_SOURCE_DIR}/src/algo/hnsw/hnsw_core.cpp
     ${PROJECT_SOURCE_DIR}/src/algo/ivf/kmeans.cpp
     ${PROJECT_SOURCE_DIR}/src/algo/ivf/ivf_core.cpp
+    ${PROJECT_SOURCE_DIR}/src/algo/diskann/diskann_core.cpp
     ${PROJECT_SOURCE_DIR}/src/quant/flat/flat_quantizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/quant/pq/pq_quantizer.cpp
     ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_rotate.cpp
     ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_quantizer.cpp
     ${PROJECT_SOURCE_DIR}/src/quant/rabitq/rabitq_kernels.cpp

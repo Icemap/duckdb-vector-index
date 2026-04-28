@@ -9,14 +9,14 @@
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/storage/storage_manager.hpp"
 
-#include "algo/ivf/ivf_build.hpp"
-#include "algo/ivf/ivf_index.hpp"
+#include "algo/diskann/diskann_build.hpp"
+#include "algo/diskann/diskann_index.hpp"
 
 namespace duckdb {
 namespace vindex {
-namespace ivf {
+namespace diskann {
 
-PhysicalOperator &IvfIndex::CreatePlan(PlanIndexInput &input) {
+PhysicalOperator &DiskAnnIndex::CreatePlan(PlanIndexInput &input) {
 	auto &create_index = input.op;
 	auto &context = input.context;
 	auto &planner = input.planner;
@@ -31,7 +31,7 @@ PhysicalOperator &IvfIndex::CreatePlan(PlanIndexInput &input) {
 	auto is_persistence_disabled = !enable_persistence;
 
 	if (is_disk_db && is_persistence_disabled) {
-		throw BinderException("IVF indexes can only be created in in-memory databases, or when the configuration "
+		throw BinderException("DiskANN indexes can only be created in in-memory databases, or when the configuration "
 		                      "option 'vindex_enable_experimental_persistence' is set to true.");
 	}
 
@@ -40,59 +40,59 @@ PhysicalOperator &IvfIndex::CreatePlan(PlanIndexInput &input) {
 		auto &v = option.second;
 		if (StringUtil::CIEquals(k, "metric")) {
 			if (v.type() != LogicalType::VARCHAR) {
-				throw BinderException("IVF index 'metric' must be a string");
+				throw BinderException("DiskANN index 'metric' must be a string");
 			}
 			const auto metric = StringUtil::Lower(v.GetValue<string>());
 			if (metric != "l2sq" && metric != "cosine" && metric != "ip") {
-				throw BinderException("IVF index 'metric' must be one of: 'l2sq', 'cosine', 'ip'");
+				throw BinderException("DiskANN index 'metric' must be one of: 'l2sq', 'cosine', 'ip'");
 			}
 		} else if (StringUtil::CIEquals(k, "quantizer")) {
-			// Validated by the quantizer factory.
+			// Validated by the quantizer factory. DiskANN additionally rejects
+			// quantizer='flat' inside InitFromOptions — the error surfaces when
+			// DiskAnnIndex is constructed.
 		} else if (StringUtil::CIEquals(k, "bits")) {
 			if (v.type() != LogicalType::INTEGER) {
-				throw BinderException("IVF index 'bits' must be an integer");
+				throw BinderException("DiskANN index 'bits' must be an integer");
 			}
 		} else if (StringUtil::CIEquals(k, "m")) {
-			// PQ: number of sub-vector slots. Validated by the PQ factory.
 			if (v.type() != LogicalType::INTEGER && v.type() != LogicalType::BIGINT) {
-				throw BinderException("IVF index 'm' must be an integer");
+				throw BinderException("DiskANN index 'm' must be an integer");
 			}
 		} else if (StringUtil::CIEquals(k, "rerank")) {
 			if (v.type() != LogicalType::INTEGER) {
-				throw BinderException("IVF index 'rerank' must be an integer");
+				throw BinderException("DiskANN index 'rerank' must be an integer");
 			}
 			if (v.GetValue<int32_t>() < 1) {
-				throw BinderException("IVF index 'rerank' must be at least 1");
+				throw BinderException("DiskANN index 'rerank' must be at least 1");
 			}
-		} else if (StringUtil::CIEquals(k, "nlist")) {
+		} else if (StringUtil::CIEquals(k, "diskann_r")) {
 			if (v.type() != LogicalType::INTEGER && v.type() != LogicalType::BIGINT) {
-				throw BinderException("IVF index 'nlist' must be an integer");
+				throw BinderException("DiskANN index 'diskann_r' must be an integer");
 			}
-			if (v.GetValue<int64_t>() < 2) {
-				throw BinderException("IVF index 'nlist' must be at least 2");
-			}
-		} else if (StringUtil::CIEquals(k, "nprobe")) {
+		} else if (StringUtil::CIEquals(k, "diskann_l")) {
 			if (v.type() != LogicalType::INTEGER && v.type() != LogicalType::BIGINT) {
-				throw BinderException("IVF index 'nprobe' must be an integer");
+				throw BinderException("DiskANN index 'diskann_l' must be an integer");
 			}
-			if (v.GetValue<int64_t>() < 1) {
-				throw BinderException("IVF index 'nprobe' must be at least 1");
+		} else if (StringUtil::CIEquals(k, "diskann_alpha")) {
+			if (v.type() != LogicalType::FLOAT && v.type() != LogicalType::DOUBLE &&
+			    v.type() != LogicalType::DECIMAL(18, 3)) {
+				// Allow numeric literals; the index constructor does the range check.
 			}
 		} else {
-			throw BinderException("Unknown option for IVF index: '%s'", k);
+			throw BinderException("Unknown option for DiskANN index: '%s'", k);
 		}
 	}
 
 	if (create_index.expressions.size() != 1) {
-		throw BinderException("IVF indexes can only be created over a single column of keys.");
+		throw BinderException("DiskANN indexes can only be created over a single column of keys.");
 	}
 	auto &arr_type = create_index.expressions[0]->return_type;
 	if (arr_type.id() != LogicalTypeId::ARRAY) {
-		throw BinderException("IVF index keys must be of type FLOAT[N]");
+		throw BinderException("DiskANN index keys must be of type FLOAT[N]");
 	}
 	auto &child_type = ArrayType::GetChildType(arr_type);
 	if (child_type.id() != LogicalTypeId::FLOAT) {
-		throw BinderException("IVF index key type must be 'FLOAT[N]'");
+		throw BinderException("DiskANN index key type must be 'FLOAT[N]'");
 	}
 
 	vector<LogicalType> new_column_types;
@@ -126,13 +126,13 @@ PhysicalOperator &IvfIndex::CreatePlan(PlanIndexInput &input) {
 	null_filter.types.emplace_back(LogicalType::ROW_TYPE);
 	null_filter.children.push_back(projection);
 
-	auto &physical_create_index = planner.Make<PhysicalCreateIvfIndex>(
+	auto &physical_create_index = planner.Make<PhysicalCreateDiskAnnIndex>(
 	    create_index.types, create_index.table, create_index.info->column_ids, std::move(create_index.info),
 	    std::move(create_index.unbound_expressions), create_index.estimated_cardinality);
 	physical_create_index.children.push_back(null_filter);
 	return physical_create_index;
 }
 
-} // namespace ivf
+} // namespace diskann
 } // namespace vindex
 } // namespace duckdb

@@ -1,0 +1,46 @@
+# name: test/sql/diskann/diskann_pragma.test
+# group: [diskann]
+#
+# Session-level vindex_diskann_l_search override + pragma_vindex_diskann_index_info.
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+statement ok
+CREATE INDEX my_idx ON t1 USING DISKANN (vec)
+    WITH (quantizer='rabitq', bits=3, rerank=10, diskann_r=16, diskann_l=32);
+
+# Widen the beam at query time; should still route through the index.
+statement ok
+SET vindex_diskann_l_search = 128;
+
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+# pragma surfaces the configured graph params.
+query I
+SELECT count(*) FROM pragma_vindex_diskann_index_info() WHERE index_name = 'my_idx';
+----
+1
+
+query III
+SELECT graph_degree, beam_width, alpha FROM pragma_vindex_diskann_index_info() WHERE index_name = 'my_idx';
+----
+16	32	1.2

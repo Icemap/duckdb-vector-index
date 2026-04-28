@@ -1,0 +1,53 @@
+# name: test/sql/diskann/diskann_basic.test
+# group: [diskann]
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+# DiskANN requires a compressing quantizer. RaBitQ at the default bits=3 is the
+# least-footprint option that still gives near-perfect Recall@10 on tiny data.
+statement ok
+CREATE INDEX my_idx ON t1 USING DISKANN (vec)
+    WITH (quantizer='rabitq', bits=3, rerank=10);
+
+# Plan shape: same as HNSW/IVF — the optimizer rewrites TOP_N(LIMIT k) into a
+# VINDEX_INDEX_SCAN; DiskANN has no algorithm-specific operator.
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+# DiskANN bans quantizer='flat' — the whole value proposition is evictable
+# graph blocks, which an inline-fp32 code layout defeats.
+statement error
+CREATE INDEX bad_idx ON t1 USING DISKANN (vec) WITH (quantizer='flat');
+----
+DiskANN requires a compressing quantizer
+
+# Unknown option should fail at bind.
+statement error
+CREATE INDEX bad_idx2 ON t1 USING DISKANN (vec) WITH (notreal=1);
+----
+Unknown option for DiskANN index
+
+# diskann_r out of range.
+statement error
+CREATE INDEX bad_idx3 ON t1 USING DISKANN (vec)
+    WITH (quantizer='rabitq', diskann_r=2);
+----
+diskann_r

@@ -5,10 +5,12 @@ official [`vss`](https://github.com/duckdb/duckdb-vss) extension: supports
 HNSW, IVF, DiskANN, ScaNN, SPANN, and pluggable quantization (default
 **RaBitQ 3-bit**, >99% Recall@10 on SIFT1M).
 
-> **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), and RaBitQ
-> (bits ∈ {1,2,3,4,5,7,8}) are supported, with an optimizer-level rerank
-> pass, persistence across restarts, SQL + unit tests green, and a recall
-> harness wired up (`make bench`). DiskANN is next.
+> **Status**: HNSW, IVF (IVF-Flat + IVF-RaBitQ), DiskANN (Vamana graph with
+> codes stored out-of-band so the graph can be evicted past RAM), and the
+> quantizers RaBitQ (bits ∈ {1,2,3,4,5,7,8}) and PQ (classical product
+> quantization) are all supported, with an optimizer-level rerank pass,
+> persistence across restarts, SQL + unit tests green, and a recall harness
+> wired up (`make bench`). ScaNN / SPANN are next.
 
 ## Quickstart (target UX)
 
@@ -29,6 +31,14 @@ CREATE INDEX docs_idx ON docs USING IVF (embedding)
     WITH (metric='cosine', quantizer='rabitq', bits=3, rerank=10,
           nlist=1024, nprobe=32);
 
+-- DiskANN (Vamana) with PQ compression — graph blocks evict from the
+-- buffer pool so the index can exceed RAM. PQ defaults (m=dim/4, bits=8)
+-- are fine for most 768-d models; tune `diskann_r`/`diskann_l` if you need
+-- a wider beam.
+CREATE INDEX docs_idx ON docs USING DISKANN (embedding)
+    WITH (metric='cosine', quantizer='pq', bits=8, rerank=10,
+          diskann_r=64, diskann_l=100);
+
 -- Query uses the standard DuckDB distance function; the index kicks in.
 SELECT id, embedding
 FROM docs
@@ -41,8 +51,8 @@ LIMIT 10;
 | `USING` | Status | Notes |
 | --- | --- | --- |
 | `HNSW` | supported | in-house graph (`HnswCore`) over `IndexBlockStore`; see "Why not usearch" below |
-| `IVF` | supported | IVF-Flat / IVF-RaBitQ; k-means++ centroids + per-list posting buffers |
-| `DISKANN` | planned (M3) | Vamana graph + PQ, indexes larger than RAM |
+| `IVF` | supported | IVF-Flat / IVF-RaBitQ / IVF-PQ; k-means++ centroids + per-list posting buffers |
+| `DISKANN` | supported | Vamana graph with codes held out-of-band; graph blocks evict via the buffer pool so the index can exceed RAM |
 | `SCANN` | planned (M4) | anisotropic quantization |
 | `SPANN` | planned (M4) | in-memory centroids + disk postings |
 
@@ -119,7 +129,7 @@ RaBitQ codes.
 | --- | --- | --- | --- |
 | `flat` | supported | — | no compression, float32 |
 | `rabitq` | supported | 3 | 1/2/3/4/5/7/8 bit; 3-bit hits >99% Recall@10 on SIFT1M |
-| `pq` | planned (M2) | — | classical product quantization |
+| `pq` | supported | 8 | classical product quantization; `m` sub-vector count defaults to `dim/4`, `bits` ∈ {4, 8} |
 
 ### Quantizer bits vs recall
 

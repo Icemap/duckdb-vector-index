@@ -9,6 +9,7 @@
 
 // Forward declarations of per-algorithm registration entrypoints. Each
 // algorithm's module.hpp exposes a `Register(ExtensionLoader&)` symbol.
+#include "algo/diskann/diskann_module.hpp"
 #include "algo/hnsw/hnsw_module.hpp"
 #include "algo/ivf/ivf_module.hpp"
 
@@ -47,7 +48,7 @@ void RegisterBuiltInAlgorithms(ExtensionLoader &loader) {
 	// 1) Algorithm-specific index types + pragmas.
 	hnsw::Register(loader);
 	ivf::Register(loader);
-	// TODO(m3): diskann::Register(loader);
+	diskann::Register(loader);
 
 	// 2) Shared optimizers — registered once, dispatch via VectorIndexRegistry.
 	auto &db = loader.GetDatabaseInstance();

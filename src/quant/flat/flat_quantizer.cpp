@@ -4,6 +4,7 @@
 #include "duckdb/common/serializer/memory_stream.hpp"
 #include "duckdb/common/string_util.hpp"
 
+#include "vindex/pq_quantizer.hpp"
 #include "vindex/quantizer.hpp"
 
 #include "../rabitq/rabitq_quantizer.hpp"
@@ -157,7 +158,7 @@ private:
 
 // ---------------------------------------------------------------------------
 // Factory — parses `WITH (quantizer = '...')` option.
-// Dispatches to the right concrete Quantizer. M1 ships FLAT + RABITQ; PQ is M2.
+// Dispatches to the right concrete Quantizer. Ships FLAT / RABITQ / PQ.
 // ---------------------------------------------------------------------------
 unique_ptr<Quantizer> CreateQuantizer(const case_insensitive_map_t<Value> &options, MetricKind metric, idx_t dim) {
 	string name = "flat";
@@ -209,7 +210,44 @@ unique_ptr<Quantizer> CreateQuantizer(const case_insensitive_map_t<Value> &optio
 		}
 		return make_uniq<rabitq::RabitqQuantizer>(metric, dim, bits);
 	}
-	throw BinderException("vindex: unknown quantizer '%s' (expected 'flat' or 'rabitq')", name);
+	if (name == "pq") {
+		// Defaults: bits=8 (256 centroids/slot, <1% distance error on SIFT-
+		// scale features), m = max(1, dim / 4) — i.e. each sub-vector is 4
+		// floats, a common sweet spot for the k-means cost vs granularity
+		// trade-off. Users who need smaller codes bump m; who need lower
+		// training cost drop it.
+		uint8_t bits = 8;
+		auto bit_it = options.find("bits");
+		if (bit_it != options.end()) {
+			if (bit_it->second.type() != LogicalType::INTEGER) {
+				throw BinderException("vindex: pq 'bits' option must be an integer");
+			}
+			const int32_t b = bit_it->second.GetValue<int32_t>();
+			if (b != 4 && b != 8) {
+				throw BinderException("vindex: pq bits=%d is not supported (expected 4 or 8)", b);
+			}
+			bits = static_cast<uint8_t>(b);
+		}
+
+		idx_t m = dim >= 4 ? dim / 4 : 1;
+		auto m_it = options.find("m");
+		if (m_it != options.end()) {
+			if (m_it->second.type() != LogicalType::INTEGER) {
+				throw BinderException("vindex: pq 'm' option must be an integer");
+			}
+			const int32_t mm = m_it->second.GetValue<int32_t>();
+			if (mm <= 0 || mm > 255) {
+				throw BinderException("vindex: pq m=%d out of range (1..255)", mm);
+			}
+			m = static_cast<idx_t>(mm);
+		}
+		if (dim % m != 0) {
+			throw BinderException("vindex: pq requires dim (%llu) to be divisible by m (%llu)",
+			                      (unsigned long long)dim, (unsigned long long)m);
+		}
+		return make_uniq<pq::PqQuantizer>(metric, dim, static_cast<uint8_t>(m), bits);
+	}
+	throw BinderException("vindex: unknown quantizer '%s' (expected 'flat', 'rabitq', or 'pq')", name);
 }
 
 } // namespace vindex

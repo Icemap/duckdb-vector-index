@@ -1,0 +1,34 @@
+# name: test/sql/diskann/diskann_pq.test
+# group: [diskann]
+#
+# DiskANN + classical Product-Quantization. The grid fixture is too small to
+# give a meaningful recall signal for PQ; this test just exercises the
+# end-to-end wiring (train → build → scan → rerank).
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[8]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c,d,a+b,b+c,c+d,a+d)
+FROM range(1,6) ra(a), range(1,6) rb(b), range(1,6) rc(c), range(1,6) rd(d);
+
+# m=4 over 8 dims gives 2 floats per slot — enough centroid separation on this
+# fixture. bits=8 uses all 256 centroids (small fixture → kmeans converges).
+statement ok
+CREATE INDEX pq_idx ON t1 USING DISKANN (vec)
+    WITH (quantizer='pq', m=4, bits=8, rerank=10);
+
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3,4,3,5,7,5]::FLOAT[8]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT count(*) FROM (SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3,4,3,5,7,5]::FLOAT[8]) LIMIT 3);
+----
+3

@@ -1,0 +1,44 @@
+# name: test/sql/diskann/diskann_rabitq.test
+# group: [diskann]
+#
+# Explicit DiskANN + RaBitQ coverage, mirroring test/sql/ivf/ivf_rabitq.test.
+
+require vindex
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t1 (vec FLOAT[3]);
+
+statement ok
+INSERT INTO t1 SELECT array_value(a,b,c) FROM range(1,10) ra(a), range(1,10) rb(b), range(1,10) rc(c);
+
+statement ok
+CREATE INDEX my_idx ON t1 USING DISKANN (vec)
+    WITH (quantizer='rabitq', bits=3, rerank=10);
+
+query II
+EXPLAIN SELECT * FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+physical_plan	<REGEX>:.*VINDEX_INDEX_SCAN.*
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true
+
+# Custom DiskANN graph parameters: smaller R/L speed up construction on the
+# grid fixture without hurting recall (data is 729 points, R=16 is ample).
+statement ok
+CREATE INDEX small_idx ON t1 USING DISKANN (vec)
+    WITH (quantizer='rabitq', bits=3, rerank=10, diskann_r=16, diskann_l=32);
+
+query I
+SELECT array_distance([1,2,3]::FLOAT[3], vec) < 1.5 FROM t1 ORDER BY array_distance(vec, [1,2,3]::FLOAT[3]) LIMIT 3;
+----
+true
+true
+true

@@ -42,8 +42,12 @@ CONFIGS = {
     "hnsw-flat":           ("HNSW", ""),
     "hnsw-rabitq3":        ("HNSW", "WITH (quantizer='rabitq', bits=3, rerank=10)"),
     "hnsw-rabitq1-rerank": ("HNSW", "WITH (quantizer='rabitq', bits=1, rerank=50)"),
+    "hnsw-pq":             ("HNSW", "WITH (quantizer='pq', bits=8, rerank=10)"),
     "ivf-flat":            ("IVF",  "WITH (nlist=128, nprobe=16)"),
     "ivf-rabitq3":         ("IVF",  "WITH (quantizer='rabitq', bits=3, rerank=10, nlist=128, nprobe=16)"),
+    "ivf-pq":              ("IVF",  "WITH (quantizer='pq', m=16, bits=8, rerank=10, nlist=128, nprobe=16)"),
+    "diskann-pq":          ("DISKANN", "WITH (quantizer='pq', m=16, bits=8, rerank=10, diskann_r=64, diskann_l=100)"),
+    "diskann-rabitq3":     ("DISKANN", "WITH (quantizer='rabitq', bits=3, rerank=10, diskann_r=64, diskann_l=100)"),
 }
 
 # Recall@10 thresholds per (algo, dataset). Anything below → non-zero exit.
@@ -55,13 +59,21 @@ THRESHOLDS = {
     ("hnsw-flat",           "siftsmall"): 0.98,
     ("hnsw-rabitq3",        "siftsmall"): 0.95,
     ("hnsw-rabitq1-rerank", "siftsmall"): 0.90,
+    ("hnsw-pq",             "siftsmall"): 0.90,
     ("ivf-flat",            "siftsmall"): 0.90,
     ("ivf-rabitq3",         "siftsmall"): 0.90,
+    ("ivf-pq",              "siftsmall"): 0.90,
+    ("diskann-pq",          "siftsmall"): 0.90,
+    ("diskann-rabitq3",     "siftsmall"): 0.90,
     ("hnsw-flat",           "sift1m"):    0.98,
     ("hnsw-rabitq3",        "sift1m"):    0.99,
     ("hnsw-rabitq1-rerank", "sift1m"):    0.90,
+    ("hnsw-pq",             "sift1m"):    0.98,
     ("ivf-flat",            "sift1m"):    0.95,
     ("ivf-rabitq3",         "sift1m"):    0.97,
+    ("ivf-pq",              "sift1m"):    0.95,
+    ("diskann-pq",          "sift1m"):    0.95,
+    ("diskann-rabitq3",     "sift1m"):    0.95,
 }
 
 
