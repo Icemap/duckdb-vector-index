@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.29)
+# Matches DuckDB's own upper bound. The Windows mingw runner in
+# extension-ci-tools ships CMake 3.24, so we can't raise this without a
+# custom pre-install step in the reusable workflow.
+cmake_minimum_required(VERSION 3.5...3.29)
 
 # -----------------------------------------------------------------------------
 # Extension identity
