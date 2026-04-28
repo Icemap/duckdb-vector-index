@@ -13,14 +13,21 @@ namespace rabitq {
 
 // Per-vector trailer layout right after the packed bits.
 //
-//   bits == 1: (alpha = ‖x - c‖,  scale = β  = <o_bar, b_bar>)
-//   bits >= 2: (alpha = ‖x - c‖,  scale = Δ  = max|r_rot| / (2^(bits-1) - 0.5))
+//   bits == 1: (alpha = ‖x_eff - c‖,  scale = β = <o_bar, b_bar>)
+//   bits >= 2: (alpha = ‖x_eff - c‖,  scale = Δ = max|r_rot| / (2^(bits-1) - 0.5))
 //
-// Two layouts share one struct because the 8-byte footprint lets the SIMD
-// kernels in task #19 decode both without a layout branch.
+// `rc` caches <r, c> = <x_eff - c, c> per vector. L2SQ ignores it; IP and
+// COSINE use it to reconstruct the full inner product as
+//   <x_eff, q_eff> = cross + rc + <c, q_eff>
+// where cross ≈ <r_rot, q_rot> is the estimator's residual dot. Storing
+// this pre-computed scalar costs 4 bytes per code but avoids running the
+// Dot kernel a second time against R·c per candidate.
+//
+// `x_eff = x` for L2SQ/IP and `x_eff = x/‖x‖` for COSINE.
 struct CodeTrailer {
 	float alpha;
 	float scale;
+	float rc;
 };
 
 namespace {
@@ -96,14 +103,32 @@ RabitqQuantizer::RabitqQuantizer(MetricKind metric, idx_t dim, uint8_t bits, uin
 		throw NotImplementedException(
 		    "vindex::RabitqQuantizer: bits=%d is not supported (expected one of 1,2,3,4,5,7,8)", int(bits_));
 	}
-	if (metric_ != MetricKind::L2SQ) {
-		// IP / COSINE land together with the SIMD kernels in task #19. Failing
-		// in the ctor (rather than at query time) makes the limitation obvious
-		// at CREATE INDEX.
-		throw NotImplementedException(
-		    "vindex::RabitqQuantizer: only metric='l2sq' is implemented so far (IP/cosine arrive in task #19)");
-	}
 }
+
+namespace {
+
+// Normalize `v` (length `dim`) to unit norm, writing to `out`. Returns the
+// original norm. For zero vectors, emits zeros and returns 0.
+float Normalize(const float *v, idx_t dim, float *out) {
+	float norm_sq = 0.0f;
+	for (idx_t i = 0; i < dim; i++) {
+		norm_sq += v[i] * v[i];
+	}
+	const float norm = std::sqrt(norm_sq);
+	if (norm <= 0.0f) {
+		for (idx_t i = 0; i < dim; i++) {
+			out[i] = 0.0f;
+		}
+		return 0.0f;
+	}
+	const float inv = 1.0f / norm;
+	for (idx_t i = 0; i < dim; i++) {
+		out[i] = v[i] * inv;
+	}
+	return norm;
+}
+
+} // namespace
 
 void RabitqQuantizer::Train(const float *samples, idx_t n, idx_t dim) {
 	if (dim != dim_) {
@@ -111,11 +136,21 @@ void RabitqQuantizer::Train(const float *samples, idx_t n, idx_t dim) {
 		                        (unsigned long long)dim_, (unsigned long long)dim);
 	}
 	// centroid ← mean of the training sample (the classic "remove the mean"
-	// trick that makes RaBitQ error bounds data-independent).
+	// trick that makes RaBitQ error bounds data-independent). For COSINE we
+	// work in the unit-sphere space, so the centroid is the mean of the
+	// L2-normalized samples.
 	centroid_.assign(dim_, 0.0f);
 	if (n > 0) {
+		vector<float> tmp;
+		if (metric_ == MetricKind::COSINE) {
+			tmp.resize(dim_);
+		}
 		for (idx_t i = 0; i < n; i++) {
 			const float *row = samples + i * dim_;
+			if (metric_ == MetricKind::COSINE) {
+				Normalize(row, dim_, tmp.data());
+				row = tmp.data();
+			}
 			for (idx_t k = 0; k < dim_; k++) {
 				centroid_[k] += row[k];
 			}
@@ -124,6 +159,10 @@ void RabitqQuantizer::Train(const float *samples, idx_t n, idx_t dim) {
 		for (idx_t k = 0; k < dim_; k++) {
 			centroid_[k] *= inv_n;
 		}
+	}
+	centroid_norm_sq_ = 0.0f;
+	for (idx_t k = 0; k < dim_; k++) {
+		centroid_norm_sq_ += centroid_[k] * centroid_[k];
 	}
 	rotation_ = RandomRotation(dim_, rotation_seed_);
 	trained_ = true;
@@ -134,8 +173,12 @@ idx_t RabitqQuantizer::CodeSize() const {
 }
 
 idx_t RabitqQuantizer::QueryWorkspaceSize() const {
-	// dim rotated-query floats + 1 float for the cached ‖q - c‖².
-	return dim_ + 1;
+	// Layout:
+	//   [0 .. dim-1]   q_rot = R · (q_eff - c)
+	//   [dim]          ‖q_eff - c‖²          (L2SQ estimator)
+	//   [dim+1]        <c, q_eff>            (IP / COSINE estimators)
+	// where q_eff = query for L2SQ / IP, and q_eff = query/‖query‖ for COSINE.
+	return dim_ + 2;
 }
 
 void RabitqQuantizer::Encode(const float *vec, data_ptr_t code_out) const {
@@ -143,10 +186,22 @@ void RabitqQuantizer::Encode(const float *vec, data_ptr_t code_out) const {
 		throw InternalException("RabitqQuantizer::Encode called before Train");
 	}
 
-	// r = x - c, and r_rot = R · r.
+	// For COSINE we quantize the unit-length x̂ = x/‖x‖, so <x̂, q̂> = cos(x,q).
+	// Other metrics encode the raw vector directly.
+	vector<float> x_eff_storage;
+	const float *x_eff = vec;
+	if (metric_ == MetricKind::COSINE) {
+		x_eff_storage.resize(dim_);
+		Normalize(vec, dim_, x_eff_storage.data());
+		x_eff = x_eff_storage.data();
+	}
+
+	// r = x_eff - c, and r_rot = R · r.
 	vector<float> r(dim_);
+	float rc = 0.0f;
 	for (idx_t i = 0; i < dim_; i++) {
-		r[i] = vec[i] - centroid_[i];
+		r[i] = x_eff[i] - centroid_[i];
+		rc += r[i] * centroid_[i];
 	}
 	vector<float> r_rot(dim_);
 	rotation_.Apply(r.data(), r_rot.data());
@@ -183,7 +238,7 @@ void RabitqQuantizer::Encode(const float *vec, data_ptr_t code_out) const {
 			}
 		}
 
-		CodeTrailer trailer {alpha, beta};
+		CodeTrailer trailer {alpha, beta, rc};
 		std::memcpy(code_out + bit_bytes, &trailer, sizeof(trailer));
 		return;
 	}
@@ -218,7 +273,7 @@ void RabitqQuantizer::Encode(const float *vec, data_ptr_t code_out) const {
 	}
 	PackBits(codes.data(), dim_, bits_, code_out);
 
-	CodeTrailer trailer {alpha, delta};
+	CodeTrailer trailer {alpha, delta, rc};
 	std::memcpy(code_out + bit_bytes, &trailer, sizeof(trailer));
 }
 
@@ -226,15 +281,33 @@ void RabitqQuantizer::PreprocessQuery(const float *query, float *out) const {
 	if (!trained_) {
 		throw InternalException("RabitqQuantizer::PreprocessQuery called before Train");
 	}
-	// q_c = query - centroid, then q_rot = R · q_c.
+
+	// For COSINE we normalize the query once so the estimator computes
+	// <x̂, q̂> directly. For IP/L2SQ we work in the raw coordinate system.
+	vector<float> q_eff_storage;
+	const float *q_eff = query;
+	if (metric_ == MetricKind::COSINE) {
+		q_eff_storage.resize(dim_);
+		Normalize(query, dim_, q_eff_storage.data());
+		q_eff = q_eff_storage.data();
+	}
+
+	// q_c = q_eff - centroid, then q_rot = R · q_c.
+	// Side computations:
+	//   ‖q_eff - c‖² — used by the L2SQ estimator.
+	//   <c, q_eff>   — used by the IP / COSINE estimators to reconstruct
+	//                  the full inner product from the residual dot.
 	vector<float> q_c(dim_);
 	float norm_sq = 0.0f;
+	float c_dot_q = 0.0f;
 	for (idx_t i = 0; i < dim_; i++) {
-		q_c[i] = query[i] - centroid_[i];
+		q_c[i] = q_eff[i] - centroid_[i];
 		norm_sq += q_c[i] * q_c[i];
+		c_dot_q += centroid_[i] * q_eff[i];
 	}
 	rotation_.Apply(q_c.data(), out);
 	out[dim_] = norm_sq;
+	out[dim_ + 1] = c_dot_q;
 }
 
 float RabitqQuantizer::EstimateDistance(const_data_ptr_t code, const float *query_preproc) const {
@@ -246,7 +319,9 @@ float RabitqQuantizer::EstimateDistance(const_data_ptr_t code, const float *quer
 	std::memcpy(&trailer, code + bit_bytes, sizeof(trailer));
 	const float alpha = trailer.alpha;
 	const float scale = trailer.scale;
+	const float rc = trailer.rc;
 	const float q_norm_sq = query_preproc[dim_];
+	const float c_dot_q = query_preproc[dim_ + 1];
 
 	// Heavy lifting lives in rabitq_kernels.cpp so the SIMD hot paths are in
 	// one translation unit, with a per-bits dispatch that the compiler can
@@ -266,20 +341,38 @@ float RabitqQuantizer::EstimateDistance(const_data_ptr_t code, const float *quer
 		cross = scale * dot;
 	}
 
-	// ‖x - q‖² = ‖r‖² + ‖q - c‖² - 2·<r_rot, q_rot>
-	//          = α² + q_norm_sq - 2·cross
-	const float est = alpha * alpha + q_norm_sq - 2.0f * cross;
-	// Numerical floor — a zero-distance match can dip slightly below zero due
-	// to float32 cancellation, but L2SQ is nonnegative by definition.
-	return est < 0.0f ? 0.0f : est;
+	switch (metric_) {
+	case MetricKind::L2SQ: {
+		// ‖x - q‖² = ‖r‖² + ‖q - c‖² - 2·<r_rot, q_rot>
+		//          = α² + q_norm_sq - 2·cross
+		const float est = alpha * alpha + q_norm_sq - 2.0f * cross;
+		// Numerical floor — a zero-distance match can dip slightly below zero
+		// due to float32 cancellation, but L2SQ is nonnegative by definition.
+		return est < 0.0f ? 0.0f : est;
+	}
+	case MetricKind::IP: {
+		// <x, q> = <r_rot, q_rot> + <r, c> + <c, q>
+		// DuckDB's array_negative_inner_product convention negates so that
+		// smaller = closer, matching the Flat quantizer's IP branch.
+		return -(cross + rc + c_dot_q);
+	}
+	case MetricKind::COSINE: {
+		// q_preproc was derived from q̂ = q/‖q‖ and the code from x̂ = x/‖x‖,
+		// so `cross + rc + c_dot_q` ≈ <x̂, q̂> = cos(x, q). Distance is
+		// 1 - cos to match Flat's cosine branch.
+		return 1.0f - (cross + rc + c_dot_q);
+	}
+	}
+	throw InternalException("RabitqQuantizer::EstimateDistance: unreachable MetricKind");
 }
 
 // Code-to-code distance used by the HNSW Algorithm 4 neighbor-pruning
-// heuristic at insert time. The rotation R is orthogonal, so L2SQ distances
-// between the residuals equal L2SQ distances in the original space:
-//   ‖xa - xb‖² = ‖R(ra - rb)‖² = ‖ra - rb‖²
-// where ra/rb are the *rotated* residuals reconstructed from each code.
-// This is O(dim) per call; we pay it once per candidate edge during Insert().
+// heuristic at insert time. The rotation R is orthogonal, so residual inner
+// products and L2SQ distances in the rotated frame equal those in the
+// original frame. We reconstruct r_rot_a, r_rot_b from each code and fold
+// in the cached `rc` scalars to recover either ‖x_a - x_b‖² (L2SQ) or
+// <x_eff_a, x_eff_b> (IP / COSINE). O(dim) per call, paid once per candidate
+// edge during Insert().
 float RabitqQuantizer::CodeDistance(const_data_ptr_t code_a, const_data_ptr_t code_b) const {
 	if (!trained_) {
 		throw InternalException("RabitqQuantizer::CodeDistance called before Train");
@@ -288,7 +381,10 @@ float RabitqQuantizer::CodeDistance(const_data_ptr_t code_a, const_data_ptr_t co
 	CodeTrailer ta, tb;
 	std::memcpy(&ta, code_a + bit_bytes, sizeof(ta));
 	std::memcpy(&tb, code_b + bit_bytes, sizeof(tb));
-	float acc = 0.0f;
+
+	float l2sq_acc = 0.0f;
+	float ip_acc = 0.0f; // <r_rot_a, r_rot_b> accumulator
+
 	if (bits_ == 1) {
 		// b̄[i] = (2·bit[i] - 1) / √d, r̂ ≈ α · b̄ / β, so
 		//   r_a[i] ≈ (α_a/β_a)·(2·bit_a[i]-1)/√d.
@@ -301,7 +397,8 @@ float RabitqQuantizer::CodeDistance(const_data_ptr_t code_a, const_data_ptr_t co
 			const float ra = sa * (2.0f * bit_a - 1.0f);
 			const float rb = sb * (2.0f * bit_b - 1.0f);
 			const float d = ra - rb;
-			acc += d * d;
+			l2sq_acc += d * d;
+			ip_acc += ra * rb;
 		}
 	} else {
 		// bits ≥ 2: r_rot[i] ≈ Δ · code[i]. The trailer's `scale` is the
@@ -309,11 +406,27 @@ float RabitqQuantizer::CodeDistance(const_data_ptr_t code_a, const_data_ptr_t co
 		for (idx_t i = 0; i < dim_; i++) {
 			const int32_t ca = UnpackBits(code_a, i, bits_);
 			const int32_t cb = UnpackBits(code_b, i, bits_);
-			const float d = ta.scale * float(ca) - tb.scale * float(cb);
-			acc += d * d;
+			const float ra = ta.scale * float(ca);
+			const float rb = tb.scale * float(cb);
+			const float d = ra - rb;
+			l2sq_acc += d * d;
+			ip_acc += ra * rb;
 		}
 	}
-	return acc;
+
+	switch (metric_) {
+	case MetricKind::L2SQ:
+		return l2sq_acc;
+	case MetricKind::IP:
+	case MetricKind::COSINE: {
+		// <x_eff_a, x_eff_b> = <r_a, r_b> + <r_a, c> + <r_b, c> + ‖c‖²
+		// ‖c‖² is constant across all pairs but included so the returned
+		// scalar matches the estimator's semantics (negated IP, 1 - cos).
+		const float dot = ip_acc + ta.rc + tb.rc + centroid_norm_sq_;
+		return metric_ == MetricKind::IP ? -dot : (1.0f - dot);
+	}
+	}
+	throw InternalException("RabitqQuantizer::CodeDistance: unreachable MetricKind");
 }
 
 // Persistence layout:
@@ -382,6 +495,10 @@ void RabitqQuantizer::Deserialize(const_data_ptr_t in, idx_t size) {
 	centroid_.assign(dim_, 0.0f);
 	std::memcpy(centroid_.data(), ptr, centroid_bytes);
 	ptr += centroid_bytes;
+	centroid_norm_sq_ = 0.0f;
+	for (idx_t k = 0; k < dim_; k++) {
+		centroid_norm_sq_ += centroid_[k] * centroid_[k];
+	}
 
 	uint64_t rot_size;
 	std::memcpy(&rot_size, ptr, sizeof(rot_size));

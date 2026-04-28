@@ -1,0 +1,366 @@
+# name: test/sql/common/combo_matrix.test
+# group: [combo_matrix]
+#
+# Every (algorithm × quantizer × metric) combination enumerated. Each cell
+# either creates successfully (`statement ok`) or is documented as rejected
+# with a pinned error substring (`statement error`). The file locks the
+# current acceptance matrix — any new rejection or new support must be
+# reflected here, so backend drift surfaces immediately.
+#
+# Opt-in: set VINDEX_RUN_MATRIX to run. The file is skipped by default on
+# `make test` because each CREATE INDEX pays the full build pipeline and
+# the total grows O(#algos × #quantizers × #metrics). Run it via
+# `make matrix` or `VINDEX_RUN_MATRIX=1 make test`.
+#
+# Dimensions:
+#   algorithm ∈ { hnsw, ivf, diskann, spann }
+#   quantizer ∈ { flat, rabitq, pq, scann }
+#   metric    ∈ { l2sq, cosine, ip }
+#
+# = 48 cells. Backend-known unsupported cells (documented in README /
+# doc/plan.md) use `statement error` with the exact thrown substring.
+
+require vindex
+
+require-env VINDEX_RUN_MATRIX
+
+statement ok
+SET vindex_enable_experimental_persistence = true;
+
+statement ok
+CREATE TABLE t (vec FLOAT[16]);
+
+# 50-row fixture — enough for every algo to train its quantizer (PQ/ScaNN need
+# 2^bits samples per segment, and at bits=4 we need >= 16 rows; 50 is plenty).
+statement ok
+INSERT INTO t SELECT array_value(
+    a, a*1.1, a*0.9, a*1.3, a*0.7, a*1.5, a*0.5, a*1.7,
+    a*0.3, a*1.9, a*0.1, a*2.1, a*-0.1, a*2.3, a*-0.3, a*2.5
+)::FLOAT[16] FROM range(1, 51) r(a);
+
+# ============================================================================
+# HNSW
+# ============================================================================
+
+# -- hnsw × flat --------------------------------------------------------------
+
+statement ok
+CREATE INDEX hnsw_flat_l2sq ON t USING HNSW (vec) WITH (metric='l2sq', quantizer='flat');
+
+statement ok
+DROP INDEX hnsw_flat_l2sq;
+
+statement ok
+CREATE INDEX hnsw_flat_cosine ON t USING HNSW (vec) WITH (metric='cosine', quantizer='flat');
+
+statement ok
+DROP INDEX hnsw_flat_cosine;
+
+statement ok
+CREATE INDEX hnsw_flat_ip ON t USING HNSW (vec) WITH (metric='ip', quantizer='flat');
+
+statement ok
+DROP INDEX hnsw_flat_ip;
+
+# -- hnsw × rabitq ------------------------------------------------------------
+
+statement ok
+CREATE INDEX hnsw_rabitq_l2sq ON t USING HNSW (vec) WITH (metric='l2sq', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX hnsw_rabitq_l2sq;
+
+statement ok
+CREATE INDEX hnsw_rabitq_cosine ON t USING HNSW (vec) WITH (metric='cosine', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX hnsw_rabitq_cosine;
+
+statement ok
+CREATE INDEX hnsw_rabitq_ip ON t USING HNSW (vec) WITH (metric='ip', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX hnsw_rabitq_ip;
+
+# -- hnsw × pq ----------------------------------------------------------------
+
+statement ok
+CREATE INDEX hnsw_pq_l2sq ON t USING HNSW (vec) WITH (metric='l2sq', quantizer='pq', m=8, bits=4);
+
+statement ok
+DROP INDEX hnsw_pq_l2sq;
+
+# PQ cosine: PqQuantizer throws InvalidInputException, documented limitation.
+statement error
+CREATE INDEX hnsw_pq_cosine ON t USING HNSW (vec) WITH (metric='cosine', quantizer='pq', m=8, bits=4);
+----
+PQ quantizer does not support cosine
+
+statement ok
+CREATE INDEX hnsw_pq_ip ON t USING HNSW (vec) WITH (metric='ip', quantizer='pq', m=8, bits=4);
+
+statement ok
+DROP INDEX hnsw_pq_ip;
+
+# -- hnsw × scann -------------------------------------------------------------
+
+statement ok
+CREATE INDEX hnsw_scann_l2sq ON t USING HNSW (vec) WITH (metric='l2sq', quantizer='scann', m=8, bits=4);
+
+statement ok
+DROP INDEX hnsw_scann_l2sq;
+
+# ScaNN cosine: anisotropic loss is derived for IP; cosine is rejected at bind.
+statement error
+CREATE INDEX hnsw_scann_cosine ON t USING HNSW (vec) WITH (metric='cosine', quantizer='scann', m=8, bits=4);
+----
+scann quantizer does not support cosine
+
+statement ok
+CREATE INDEX hnsw_scann_ip ON t USING HNSW (vec) WITH (metric='ip', quantizer='scann', m=8, bits=4);
+
+statement ok
+DROP INDEX hnsw_scann_ip;
+
+# ============================================================================
+# IVF — nlist kept tiny because the fixture only has 50 rows.
+# ============================================================================
+
+# -- ivf × flat ---------------------------------------------------------------
+
+statement ok
+CREATE INDEX ivf_flat_l2sq ON t USING IVF (vec) WITH (metric='l2sq', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX ivf_flat_l2sq;
+
+statement ok
+CREATE INDEX ivf_flat_cosine ON t USING IVF (vec) WITH (metric='cosine', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX ivf_flat_cosine;
+
+statement ok
+CREATE INDEX ivf_flat_ip ON t USING IVF (vec) WITH (metric='ip', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX ivf_flat_ip;
+
+# -- ivf × rabitq -------------------------------------------------------------
+
+statement ok
+CREATE INDEX ivf_rabitq_l2sq ON t USING IVF (vec) WITH (metric='l2sq', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX ivf_rabitq_l2sq;
+
+statement ok
+CREATE INDEX ivf_rabitq_cosine ON t USING IVF (vec) WITH (metric='cosine', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX ivf_rabitq_cosine;
+
+statement ok
+CREATE INDEX ivf_rabitq_ip ON t USING IVF (vec) WITH (metric='ip', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX ivf_rabitq_ip;
+
+# -- ivf × pq -----------------------------------------------------------------
+
+statement ok
+CREATE INDEX ivf_pq_l2sq ON t USING IVF (vec) WITH (metric='l2sq', quantizer='pq', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX ivf_pq_l2sq;
+
+statement error
+CREATE INDEX ivf_pq_cosine ON t USING IVF (vec) WITH (metric='cosine', quantizer='pq', m=8, bits=4, nlist=4);
+----
+PQ quantizer does not support cosine
+
+statement ok
+CREATE INDEX ivf_pq_ip ON t USING IVF (vec) WITH (metric='ip', quantizer='pq', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX ivf_pq_ip;
+
+# -- ivf × scann --------------------------------------------------------------
+
+statement ok
+CREATE INDEX ivf_scann_l2sq ON t USING IVF (vec) WITH (metric='l2sq', quantizer='scann', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX ivf_scann_l2sq;
+
+statement error
+CREATE INDEX ivf_scann_cosine ON t USING IVF (vec) WITH (metric='cosine', quantizer='scann', m=8, bits=4, nlist=4);
+----
+scann quantizer does not support cosine
+
+statement ok
+CREATE INDEX ivf_scann_ip ON t USING IVF (vec) WITH (metric='ip', quantizer='scann', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX ivf_scann_ip;
+
+# ============================================================================
+# DiskANN — flat is rejected (graph/code separation), other quantizers work.
+# ============================================================================
+
+# -- diskann × flat (all rejected) -------------------------------------------
+
+statement error
+CREATE INDEX diskann_flat_l2sq ON t USING DISKANN (vec) WITH (metric='l2sq', quantizer='flat');
+----
+DiskANN requires a compressing quantizer
+
+statement error
+CREATE INDEX diskann_flat_cosine ON t USING DISKANN (vec) WITH (metric='cosine', quantizer='flat');
+----
+DiskANN requires a compressing quantizer
+
+statement error
+CREATE INDEX diskann_flat_ip ON t USING DISKANN (vec) WITH (metric='ip', quantizer='flat');
+----
+DiskANN requires a compressing quantizer
+
+# -- diskann × rabitq ---------------------------------------------------------
+
+statement ok
+CREATE INDEX diskann_rabitq_l2sq ON t USING DISKANN (vec) WITH (metric='l2sq', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX diskann_rabitq_l2sq;
+
+statement ok
+CREATE INDEX diskann_rabitq_cosine ON t USING DISKANN (vec) WITH (metric='cosine', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX diskann_rabitq_cosine;
+
+statement ok
+CREATE INDEX diskann_rabitq_ip ON t USING DISKANN (vec) WITH (metric='ip', quantizer='rabitq', bits=3);
+
+statement ok
+DROP INDEX diskann_rabitq_ip;
+
+# -- diskann × pq -------------------------------------------------------------
+
+statement ok
+CREATE INDEX diskann_pq_l2sq ON t USING DISKANN (vec) WITH (metric='l2sq', quantizer='pq', m=8, bits=4);
+
+statement ok
+DROP INDEX diskann_pq_l2sq;
+
+statement error
+CREATE INDEX diskann_pq_cosine ON t USING DISKANN (vec) WITH (metric='cosine', quantizer='pq', m=8, bits=4);
+----
+PQ quantizer does not support cosine
+
+statement ok
+CREATE INDEX diskann_pq_ip ON t USING DISKANN (vec) WITH (metric='ip', quantizer='pq', m=8, bits=4);
+
+statement ok
+DROP INDEX diskann_pq_ip;
+
+# -- diskann × scann ----------------------------------------------------------
+
+statement ok
+CREATE INDEX diskann_scann_l2sq ON t USING DISKANN (vec) WITH (metric='l2sq', quantizer='scann', m=8, bits=4);
+
+statement ok
+DROP INDEX diskann_scann_l2sq;
+
+statement error
+CREATE INDEX diskann_scann_cosine ON t USING DISKANN (vec) WITH (metric='cosine', quantizer='scann', m=8, bits=4);
+----
+scann quantizer does not support cosine
+
+statement ok
+CREATE INDEX diskann_scann_ip ON t USING DISKANN (vec) WITH (metric='ip', quantizer='scann', m=8, bits=4);
+
+statement ok
+DROP INDEX diskann_scann_ip;
+
+# ============================================================================
+# SPANN
+# ============================================================================
+
+# -- spann × flat -------------------------------------------------------------
+
+statement ok
+CREATE INDEX spann_flat_l2sq ON t USING SPANN (vec) WITH (metric='l2sq', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX spann_flat_l2sq;
+
+statement ok
+CREATE INDEX spann_flat_cosine ON t USING SPANN (vec) WITH (metric='cosine', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX spann_flat_cosine;
+
+statement ok
+CREATE INDEX spann_flat_ip ON t USING SPANN (vec) WITH (metric='ip', quantizer='flat', nlist=4);
+
+statement ok
+DROP INDEX spann_flat_ip;
+
+# -- spann × rabitq -----------------------------------------------------------
+
+statement ok
+CREATE INDEX spann_rabitq_l2sq ON t USING SPANN (vec) WITH (metric='l2sq', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX spann_rabitq_l2sq;
+
+statement ok
+CREATE INDEX spann_rabitq_cosine ON t USING SPANN (vec) WITH (metric='cosine', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX spann_rabitq_cosine;
+
+statement ok
+CREATE INDEX spann_rabitq_ip ON t USING SPANN (vec) WITH (metric='ip', quantizer='rabitq', bits=3, nlist=4);
+
+statement ok
+DROP INDEX spann_rabitq_ip;
+
+# -- spann × pq ---------------------------------------------------------------
+
+statement ok
+CREATE INDEX spann_pq_l2sq ON t USING SPANN (vec) WITH (metric='l2sq', quantizer='pq', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX spann_pq_l2sq;
+
+statement error
+CREATE INDEX spann_pq_cosine ON t USING SPANN (vec) WITH (metric='cosine', quantizer='pq', m=8, bits=4, nlist=4);
+----
+PQ quantizer does not support cosine
+
+statement ok
+CREATE INDEX spann_pq_ip ON t USING SPANN (vec) WITH (metric='ip', quantizer='pq', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX spann_pq_ip;
+
+# -- spann × scann ------------------------------------------------------------
+
+statement ok
+CREATE INDEX spann_scann_l2sq ON t USING SPANN (vec) WITH (metric='l2sq', quantizer='scann', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX spann_scann_l2sq;
+
+statement error
+CREATE INDEX spann_scann_cosine ON t USING SPANN (vec) WITH (metric='cosine', quantizer='scann', m=8, bits=4, nlist=4);
+----
+scann quantizer does not support cosine
+
+statement ok
+CREATE INDEX spann_scann_ip ON t USING SPANN (vec) WITH (metric='ip', quantizer='scann', m=8, bits=4, nlist=4);
+
+statement ok
+DROP INDEX spann_scann_ip;

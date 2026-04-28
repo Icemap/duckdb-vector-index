@@ -24,27 +24,36 @@ namespace rabitq {
 // §"Quantizer bits vs recall"). bits=6 is intentionally omitted — it is
 // pareto-dominated by bits=5 + bigger rerank on every workload we care about.
 //
-// Per-vector storage layout (CodeSize = ceil(dim*bits/8) + 8):
+// Per-vector storage layout (CodeSize = ceil(dim*bits/8) + 12):
 //   [0 .. ceil(dim*bits/8) - 1]   packed b-bit codes, LSB-first, dim 0 lowest
-//   [..+4]                        α  = ‖x - c‖                     (float32)
+//   [..+4]                        α  = ‖x_eff - c‖                 (float32)
 //   [..+4]                        scale                            (float32)
 //     ├─ bits == 1:  scale = β  = <o_bar, b_bar>   (RaBitQ 1-bit calibration)
 //     └─ bits >= 2:  scale = Δ  = max|r_rot| / (2^(bits-1) - 0.5)
 //                                 (per-vector uniform scalar quant step)
+//   [..+4]                        rc = <r, c> = <x_eff - c, c>     (float32)
+//                                 L2SQ ignores it; IP/COSINE use it to fold
+//                                 the residual dot back into the full
+//                                 inner product.
 //
-// Query workspace (QueryWorkspaceSize = dim + 1 floats):
-//   [0 .. dim-1]  q_rot = R · (query - c)
-//   [dim]         ‖query - c‖²
+// `x_eff = x` for L2SQ / IP and `x_eff = x / ‖x‖` for COSINE, so COSINE is
+// implemented as IP on the unit sphere.
 //
-// Estimator for L2SQ (the only metric supported so far):
-//   bits == 1:  ‖x - q‖² ≈ α² + ‖q - c‖² - 2·α·Σ(b̄·q_rot) / β
+// Query workspace (QueryWorkspaceSize = dim + 2 floats):
+//   [0 .. dim-1]  q_rot = R · (q_eff - c)
+//   [dim]         ‖q_eff - c‖²      (L2SQ)
+//   [dim+1]       <c, q_eff>        (IP / COSINE)
+//
+// Estimators (`cross` ≈ <r_rot, q_rot>):
+//   bits == 1:  cross = α · Σ(b̄·q_rot) / β
 //               where b̄[i] = (2·bit[i] - 1)/√d maps {0,1} → {-1,+1}/√d.
-//   bits >= 2:  ‖x - q‖² ≈ α² + ‖q - c‖² - 2·Δ·Σ code[i]·q_rot[i]
+//   bits >= 2:  cross = Δ · Σ code[i]·q_rot[i]
 //               where code[i] ∈ {-2^(b-1), ..., 2^(b-1)-1} is the signed
 //               per-dim scalar quant of r_rot, stored as two's complement.
 //
-// IP / COSINE arrive in task #19 together with the SIMD kernels; attempting to
-// construct with any other metric throws at Train() time.
+//   L2SQ:    ‖x - q‖²        ≈ α² + ‖q-c‖² - 2·cross
+//   IP:      -<x, q>         ≈ -(cross + rc + <c, q>)
+//   COSINE:  1 - cos(x, q)   ≈ 1 - (cross + rc + <c, q̂>)
 // ---------------------------------------------------------------------------
 
 class RabitqQuantizer : public Quantizer {
@@ -97,6 +106,7 @@ private:
 	uint64_t rotation_seed_;
 	bool trained_ = false;
 	vector<float> centroid_;
+	float centroid_norm_sq_ = 0.0f; // cached ‖c‖² for the IP / COSINE CodeDistance path
 	RandomRotation rotation_;
 };
 

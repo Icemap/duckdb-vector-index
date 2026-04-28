@@ -68,30 +68,30 @@ vector<float> RandomVectors(idx_t n, idx_t dim, uint64_t seed) {
 TEST_CASE("RabitqQuantizer 1-bit code size matches packed-bits + trailer",
           "[rabitq][encode][unit]") {
 	RabitqQuantizer q(MetricKind::L2SQ, 16, /*bits=*/1);
-	// 16 / 8 = 2 bytes of bits + 8 bytes trailer (alpha, scale).
-	REQUIRE(q.CodeSize() == 2 + 8);
-	REQUIRE(q.QueryWorkspaceSize() == 16 + 1);
+	// 16 / 8 = 2 bytes of bits + 12 bytes trailer (alpha, scale, rc).
+	REQUIRE(q.CodeSize() == 2 + 12);
+	REQUIRE(q.QueryWorkspaceSize() == 16 + 2);
 	REQUIRE(q.Kind() == QuantizerKind::RABITQ);
 	REQUIRE(q.Metric() == MetricKind::L2SQ);
 	REQUIRE(q.Bits() == 1);
 }
 
 TEST_CASE("RabitqQuantizer b-bit code size scales with bits", "[rabitq][encode][unit]") {
-	// dim=32, bits=3: ceil(32*3/8) = 12 bytes + 8 trailer = 20 B.
+	// dim=32, bits=3: ceil(32*3/8) = 12 bytes + 12 trailer = 24 B.
 	RabitqQuantizer q3(MetricKind::L2SQ, 32, /*bits=*/3);
-	REQUIRE(q3.CodeSize() == 12 + 8);
+	REQUIRE(q3.CodeSize() == 12 + 12);
 
-	// dim=128, bits=8: 128 bytes + 8 trailer.
+	// dim=128, bits=8: 128 bytes + 12 trailer.
 	RabitqQuantizer q8(MetricKind::L2SQ, 128, /*bits=*/8);
-	REQUIRE(q8.CodeSize() == 128 + 8);
+	REQUIRE(q8.CodeSize() == 128 + 12);
 
 	// dim=130, bits=1: ceil(130/8) = 17 bytes.
 	RabitqQuantizer q1(MetricKind::L2SQ, 130, /*bits=*/1);
-	REQUIRE(q1.CodeSize() == 17 + 8);
+	REQUIRE(q1.CodeSize() == 17 + 12);
 
 	// dim=130, bits=5: ceil(130*5/8) = ceil(650/8) = 82 bytes.
 	RabitqQuantizer q5(MetricKind::L2SQ, 130, /*bits=*/5);
-	REQUIRE(q5.CodeSize() == 82 + 8);
+	REQUIRE(q5.CodeSize() == 82 + 12);
 }
 
 TEST_CASE("RabitqQuantizer rejects unsupported bit widths", "[rabitq][encode][unit]") {
@@ -101,9 +101,19 @@ TEST_CASE("RabitqQuantizer rejects unsupported bit widths", "[rabitq][encode][un
 	REQUIRE_THROWS_AS(RabitqQuantizer(MetricKind::L2SQ, 8, /*bits=*/16), duckdb::NotImplementedException);
 }
 
-TEST_CASE("RabitqQuantizer rejects IP/cosine until task #19", "[rabitq][encode][unit]") {
-	REQUIRE_THROWS_AS(RabitqQuantizer(MetricKind::IP, 8), duckdb::NotImplementedException);
-	REQUIRE_THROWS_AS(RabitqQuantizer(MetricKind::COSINE, 8), duckdb::NotImplementedException);
+TEST_CASE("RabitqQuantizer accepts L2SQ, IP, and COSINE metrics", "[rabitq][encode][unit]") {
+	// All three metrics share the same code layout; COSINE additionally
+	// normalizes x at Encode and q at PreprocessQuery so IP/cosine collapse
+	// to the same estimator path.
+	RabitqQuantizer l2(MetricKind::L2SQ, 8);
+	RabitqQuantizer ip(MetricKind::IP, 8);
+	RabitqQuantizer cos(MetricKind::COSINE, 8);
+	REQUIRE(l2.Metric() == MetricKind::L2SQ);
+	REQUIRE(ip.Metric() == MetricKind::IP);
+	REQUIRE(cos.Metric() == MetricKind::COSINE);
+	REQUIRE(l2.CodeSize() == ip.CodeSize());
+	REQUIRE(ip.CodeSize() == cos.CodeSize());
+	REQUIRE(l2.QueryWorkspaceSize() == ip.QueryWorkspaceSize());
 }
 
 TEST_CASE("RabitqQuantizer Encode before Train throws", "[rabitq][encode][unit]") {
@@ -279,8 +289,8 @@ TEST_CASE("CreateQuantizer('rabitq') defaults to bits=3 (README §'Quantizer bit
 	opts["quantizer"] = Value("rabitq");
 	auto q = CreateQuantizer(opts, MetricKind::L2SQ, 8);
 	REQUIRE(q->Kind() == QuantizerKind::RABITQ);
-	// dim=8, bits=3: ceil(8*3/8) = 3 bytes + 8 trailer.
-	REQUIRE(q->CodeSize() == 3 + 8);
+	// dim=8, bits=3: ceil(8*3/8) = 3 bytes + 12 trailer.
+	REQUIRE(q->CodeSize() == 3 + 12);
 }
 
 TEST_CASE("CreateQuantizer('rabitq') accepts every supported bit width",

@@ -34,3 +34,10 @@ bench_hnsw_core: release
 .PHONY: format
 format:
 	scripts/format.sh
+
+# Algorithm × quantizer × metric acceptance matrix. Opt-in because each
+# CREATE INDEX pays the full build pipeline; the file is skipped by default
+# under `make test` via `require-env VINDEX_RUN_MATRIX`.
+.PHONY: matrix
+matrix: release
+	VINDEX_RUN_MATRIX=1 ./build/release/test/unittest "test/sql/common/combo_matrix.test"
