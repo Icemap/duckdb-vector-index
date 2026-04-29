@@ -18,12 +18,12 @@ the capability trade-offs of each choice:
 
 <table>
   <tr>
-    <td><img width="100%" alt="Hierarchy explorer — HNSW + RaBitQ" src="https://github.com/user-attachments/assets/fab1056d-f3fe-4e48-8f8c-0b2267773eb5"></td>
-    <td><img width="100%" alt="Hierarchy explorer — DiskANN + PQ" src="https://github.com/user-attachments/assets/e9a3a3ca-4cf2-4545-8125-3e757688afcb"></td>
+    <td><img width="100%" alt="Hierarchy explorer — HNSW + RaBitQ" src="https://github.com/user-attachments/assets/27f63854-b25e-47c2-a67f-46b39c4000b4"></td>
+    <td><img width="100%" alt="Hierarchy explorer — DiskANN + PQ" src="https://github.com/user-attachments/assets/2e782f09-95d7-4c90-a389-acace500c552"></td>
   </tr>
   <tr>
-    <td><img width="100%" alt="Algorithm capability cards" src="https://github.com/user-attachments/assets/e56bb7a3-4948-40f0-9dc7-328ad5bf648f"></td>
-    <td><img width="100%" alt="Quantizer capability cards" src="https://github.com/user-attachments/assets/7018b0a3-62df-42b1-a5f3-099ab78f094c"></td>
+    <td><img width="100%" alt="Algorithm capability cards" src="https://github.com/user-attachments/assets/18cc0813-4962-46a6-967b-3c45ce18ce2a"></td>
+    <td><img width="100%" alt="RaBitQ detail page" src="https://github.com/user-attachments/assets/b8045085-b632-4e7a-8529-35462986b4c3"></td>
   </tr>
 </table>
 
