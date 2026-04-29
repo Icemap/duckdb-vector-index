@@ -45,8 +45,9 @@ function CmdBox({ text }: { text: string }) {
 }
 
 export default function InstallBar() {
-  // vindex is now published to community-extensions.duckdb.org, so the install
-  // is platform-agnostic: DuckDB resolves the right per-arch signed binary.
+  // vindex is published to community-extensions.duckdb.org, so the install
+  // collapses to two SQL statements that work on every platform DuckDB
+  // supports — no -unsigned flag, no platform sniffing.
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <span
@@ -56,15 +57,7 @@ export default function InstallBar() {
         Quick Install
       </span>
 
-      <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-        1.
-      </span>
-      <CmdBox text="INSTALL vindex FROM community;" />
-
-      <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-        2.
-      </span>
-      <CmdBox text="LOAD vindex;" />
+      <CmdBox text="INSTALL vindex FROM community; LOAD vindex;" />
     </div>
   );
 }
