@@ -178,10 +178,10 @@ Index RSS for N=100k, d=128, same hyperparameters as the bench:
 | ------------------------- | --------------- | --------- |
 | usearch, bench mode       | 512 B (external)| 14.7 MB (caller holds the 51 MB) |
 | HnswCore + `flat`         | 512 B (inline)  | 75.8 MB   |
-| HnswCore + `rabitq` 3-bit | 56 B (inline)   | ~33.6 MB  |
+| HnswCore + `rabitq` 3-bit | 60 B (inline)   | ~34.0 MB  |
 
 What actually matters is the `rabitq` row. Owning the code path lets us
-compress the per-vector payload ~9× and pull total index RSS below what
+compress the per-vector payload ~8.5× and pull total index RSS below what
 either `flat` path can reach. usearch's `f32 / f16 / i8 / b1` options are
 type casts, not compression — none of them can host rotated + bit-packed
 RaBitQ codes.
@@ -221,13 +221,13 @@ through DuckDB on the INRIA [siftsmall](http://corpus-texmex.irisa.fr/) set
 
 | `bits` | No rerank | + 10× rerank | + 20× rerank | Bytes / vector (d=128) | vs float32 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | ~0.40 | ~0.85 | ≥0.90 | 16 + 8 trailer = **24 B** | 21× smaller |
-| 2 | ~0.60 | ~0.95 | ≥0.97 | 32 + 8 = **40 B** | 13× smaller |
-| 3 *(default)* | ~0.80 | ≥0.98 | **≥0.99** | 48 + 8 = **56 B** | 9× smaller |
-| 4 | ~0.90 | ≥0.99 | ≥0.99 | 64 + 8 = **72 B** | 7× smaller |
-| 5 | ~0.95 | ≥0.99 | ≥0.99 | 80 + 8 = **88 B** | 5.8× smaller |
-| 7 | ~0.98 | ≥0.99 | ≥0.99 | 112 + 8 = **120 B** | 4.3× smaller |
-| 8 | ~0.99 | ≥0.99 | ≥0.99 | 128 + 8 = **136 B** | 3.8× smaller |
+| 1 | ~0.40 | ~0.85 | ≥0.90 | 16 + 12 trailer = **28 B** | 18× smaller |
+| 2 | ~0.60 | ~0.95 | ≥0.97 | 32 + 12 = **44 B** | 12× smaller |
+| 3 *(default)* | ~0.80 | ≥0.98 | **≥0.99** | 48 + 12 = **60 B** | 8.5× smaller |
+| 4 | ~0.90 | ≥0.99 | ≥0.99 | 64 + 12 = **76 B** | 6.7× smaller |
+| 5 | ~0.95 | ≥0.99 | ≥0.99 | 80 + 12 = **92 B** | 5.6× smaller |
+| 7 | ~0.98 | ≥0.99 | ≥0.99 | 112 + 12 = **124 B** | 4.1× smaller |
+| 8 | ~0.99 | ≥0.99 | ≥0.99 | 128 + 12 = **140 B** | 3.7× smaller |
 | float32 (flat) | 1.00 | 1.00 | 1.00 | **512 B** | 1× |
 
 **Rules of thumb:**
