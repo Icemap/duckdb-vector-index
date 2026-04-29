@@ -18,12 +18,12 @@ the capability trade-offs of each choice:
 
 <table>
   <tr>
-    <td><img width="100%" alt="Hierarchy explorer — HNSW + RaBitQ" src="https://github.com/user-attachments/assets/27f63854-b25e-47c2-a67f-46b39c4000b4"></td>
-    <td><img width="100%" alt="Hierarchy explorer — DiskANN + PQ" src="https://github.com/user-attachments/assets/2e782f09-95d7-4c90-a389-acace500c552"></td>
+    <td><img width="100%" alt="Hierarchy explorer — HNSW + RaBitQ" src="https://lab-static.pingcap.com/images/2026/4/29/e3cea18d7eaa6d297e592f53cbf23a1d36203487.png"></td>
+    <td><img width="100%" alt="Hierarchy explorer — DiskANN + PQ" src="https://lab-static.pingcap.com/images/2026/4/29/0ba1022cbbde51a60dd6b3befd6bd33c931d8c35.png"></td>
   </tr>
   <tr>
-    <td><img width="100%" alt="Algorithm capability cards" src="https://github.com/user-attachments/assets/18cc0813-4962-46a6-967b-3c45ce18ce2a"></td>
-    <td><img width="100%" alt="RaBitQ detail page" src="https://github.com/user-attachments/assets/b8045085-b632-4e7a-8529-35462986b4c3"></td>
+    <td><img width="100%" alt="Algorithm capability cards" src="https://lab-static.pingcap.com/images/2026/4/29/0d90b23b3c3c24d73e4d24e08661fb98f5eb38a0.png"></td>
+    <td><img width="100%" alt="RaBitQ detail page" src="https://lab-static.pingcap.com/images/2026/4/29/4bf810db92c0188f882085841329077c6bef0eae.png"></td>
   </tr>
 </table>
 
